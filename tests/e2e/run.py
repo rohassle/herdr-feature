@@ -748,6 +748,8 @@ def scenario_board(f: Fixture) -> None:
             json.dumps({"feat/zz-test-board": _pr(41, "MERGED"), "feat/zz-test-board2": _pr(42, "MERGED")})
         )
         f.run("menu", fzf=["ctrl-r|"], inputs=[])
+        shown = f.run("menu", fzf=["?|"], inputs=[])
+        check("ctrl-w   close its workspaces" in shown.stdout, "? shows the help screen")
         m = f.manifest("zz-test-board")
         check(all(wt["pr"]["state"] == "MERGED" for wt in m["worktrees"]), "ctrl-r refreshed from the board")
         # Enter on the done feature: confirm removal (y), type-confirm is not needed (clean, but never

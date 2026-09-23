@@ -22,8 +22,37 @@ HOTKEYS = [
     ("ctrl-r", "refresh PRs"),
     ("ctrl-o", "open PRs in browser"),
     ("ctrl-t", "install cli"),
+    ("?", "help"),
 ]
-EXPECT = [key for key, _ in HOTKEYS if key != "enter"]
+EXPECT = [key for key, _ in HOTKEYS if key != "enter"] + ["f1"]
+
+HELP = """\
+Feature board
+
+  A feature is one thread of work across repositories: a folder holding one Git
+  worktree per repository, opened as Herdr workspaces. A worktree is done when its
+  pull request is merged; a feature is done when every worktree is.
+
+Row
+  name   progress bar (█ merged  ░ not yet  ? not refreshed)   status   summary
+  status: open (workspaces live)  closed (files only)  done (all PRs merged)
+
+Keys, on the highlighted feature
+  Enter    open or focus its workspaces; on a done feature, offer to remove it
+  ctrl-w   close its workspaces (worktrees, folder and branches are kept)
+  ctrl-n   new feature
+  ctrl-a   add repositories to it
+  ctrl-d   drop worktrees from it (branches kept)
+  ctrl-x   remove it: worktrees, folder, workspaces, optionally its branches
+  ctrl-r   refresh: look up every pull request with gh, fetch default branches
+  ctrl-o   open its pull requests in the browser
+  ctrl-t   install the herdr-feature command line (for agents and scripts)
+  ?  F1    this help
+  Esc      leave the board
+
+Inside pickers: type to filter, Tab marks (ctrl-a all, ctrl-d none), Esc goes back.
+Nothing is deleted by closing; only remove and drop delete, after confirmation.
+"""
 
 STATUS_DONE = "done"
 
@@ -87,7 +116,7 @@ def _header(features: list[Feature], live: dict, repo_live: dict, notice: str | 
         freshness = "PRs never refreshed: ctrl-r"
     else:
         freshness = f"PRs refreshed {common.age(checked)}"
-    legend = "   ".join(f"{key}: {text}" for key, text in HOTKEYS)
+    legend = "   ".join(f"{key}: {text}" for key, text in HOTKEYS if key != "?") + "   ?: help"
     return f"{summary}   ·   {freshness}\n{legend}"
 
 
@@ -149,6 +178,10 @@ def run(config: Config) -> None:
             return
         if key == "ctrl-t":
             _sub(install_cli.run)
+            continue
+        if key in ("?", "f1"):
+            print(HELP)
+            ui.pause("Enter to return to the board.")
             continue
         if key == "ctrl-r":
             try:

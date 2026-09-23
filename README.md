@@ -113,6 +113,7 @@ preview on the right shows each worktree's branch, pull request and local state.
 | `ctrl-r` | refresh: look up every pull request with `gh`, fetch every repository's default branch |
 | `ctrl-o` | open its pull requests in the browser |
 | `ctrl-t` | install the `herdr-feature` command line |
+| `?` or `F1` | help: this table, inside the popup |
 
 Opening the board never touches the network; the header says how old the pull request
 information is. Without `gh`, or logged out, the board still opens features and says why
