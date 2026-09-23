@@ -1,6 +1,6 @@
 ---
 name: herdr-workthreads
-description: Work in threads, threads of work that span several Git repositories, managed by the herdr-workthreads plugin for Herdr. Use when asked to start work that touches more than one repository, to add a repository to the current thread, to report where a thread stands (which pull requests are merged), to park or reopen a thread's workspaces, or to tear a finished thread down. Requires running inside Herdr (HERDR_ENV=1) and a logged-in `gh`.
+description: Work in threads, units of work that run through several Git repositories, managed by the herdr-workthreads plugin for Herdr. Use when asked to start work that touches more than one repository, to add a repository to the current thread, to report where a thread stands (which pull requests are merged), to park or reopen a thread's workspaces, or to tear a finished thread down. Requires running inside Herdr (HERDR_ENV=1) and a logged-in `gh`.
 ---
 
 # herdr-workthreads
