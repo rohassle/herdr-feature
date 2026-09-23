@@ -14,3 +14,7 @@ repository to be special.
 
 The sidebar shows the feature by name at top level, without a branch or git status badge.
 That is a fair trade for robustness across Herdr upgrades.
+
+Extended by [0007](0007-optional-nested-worktree-workspaces.md): the per-repository
+worktrees can additionally (or instead) be opened as Herdr worktree workspaces, which nest
+under each repository's own workspace.

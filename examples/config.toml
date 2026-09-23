@@ -14,3 +14,8 @@ features_directory = "~/.herdr/features"
 
 # Prepended to every branch the plugin creates. May contain '/'.
 branch_prefix = "rh/"
+
+# Which Herdr workspaces a feature gets: "feature" (one workspace rooted at the feature
+# folder), "repos" (one workspace per worktree, nested under its repository in the
+# sidebar), or "both".
+workspaces = "both"

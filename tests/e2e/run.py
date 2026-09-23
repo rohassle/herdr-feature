@@ -55,6 +55,26 @@ def herdr(*args: str) -> dict:
     return json.loads(result.stdout)["result"]
 
 
+def workspace_is_linked_worktree(workspace_id: str) -> bool:
+    for ws in herdr("workspace", "list")["workspaces"]:
+        if ws["workspace_id"] == workspace_id:
+            return bool((ws.get("worktree") or {}).get("is_linked_worktree"))
+    return False
+
+
+def nested_workspaces(feature_root: Path) -> dict[str, dict]:
+    """checkout folder name -> workspace, for Herdr worktree workspaces inside a feature root."""
+    found = {}
+    for ws in herdr("workspace", "list")["workspaces"]:
+        provenance = ws.get("worktree") or {}
+        checkout = provenance.get("checkout_path")
+        if provenance.get("is_linked_worktree") and checkout:
+            path = Path(checkout).resolve()
+            if path.is_relative_to(feature_root.resolve()):
+                found[path.name] = ws
+    return found
+
+
 def workspace_by_label(label: str) -> dict | None:
     matches = [ws for ws in herdr("workspace", "list")["workspaces"] if ws["label"] == label]
     return matches[0] if matches else None
@@ -73,6 +93,8 @@ class Fixture:
             f'features_directory = "{self.features}"\n'
             'branch_prefix = "feat/"\n'
         )
+        self.config_both = self.base / "config-both.toml"
+        self.config_both.write_text(self.config.read_text() + 'workspaces = "both"\n')
         self.make("alpha", "main", remote=True)
         self.make("beta", "master", remote=True)
         self.make("gamma-nohead", "main", remote=True)
@@ -182,8 +204,26 @@ class Fixture:
             self.created_workspaces.append(ws["workspace_id"])
         return ws["workspace_id"] if ws else None
 
+    def track_id(self, workspace_id: str | None) -> None:
+        if workspace_id and workspace_id not in self.created_workspaces:
+            self.created_workspaces.append(workspace_id)
+
+    def track_fixture_repo_workspaces(self) -> None:
+        """Herdr opens a repository's own workspace as the parent of a nested worktree
+        workspace; the fixture repositories are ours, so close those parents too."""
+        for ws in herdr("workspace", "list")["workspaces"]:
+            root = (ws.get("worktree") or {}).get("repo_root")
+            if root and Path(root).resolve().is_relative_to(self.repos.resolve()):
+                self.track_id(ws["workspace_id"])
+
     def cleanup(self) -> None:
-        for workspace_id in self.created_workspaces:
+        self.track_fixture_repo_workspaces()
+        # Nested worktree workspaces first: closing a parent with open children needs --group.
+        ordered = sorted(
+            self.created_workspaces,
+            key=lambda ws_id: 0 if workspace_is_linked_worktree(ws_id) else 1,
+        )
+        for workspace_id in ordered:
             sh(HERDR, "workspace", "close", workspace_id, check_rc=False)
         shutil.rmtree(self.base, ignore_errors=True)
 
@@ -492,6 +532,112 @@ def scenario_cli(f: Fixture) -> None:
     check(not (f.features / "zz-test-cli2").exists(), "cli2 removed")
 
 
+def scenario_nested(f: Fixture) -> None:
+    print("\n=== S. workspaces = both: feature workspace plus nested per-repository workspaces")
+    plain_config = f.config
+    f.config = f.config_both
+    try:
+        root = f.features / "zz-test-nested"
+        _, payload = f.cli(
+            "new", "--name", "zz-test-nested", "--repo", "alpha", "--repo", "beta", "--yes", "--json"
+        )
+        ws = f.track("zz-test-nested")
+        check(ws is not None and payload["workspace_id"] == ws, "feature workspace created")
+        nested = nested_workspaces(root)
+        for entry in nested.values():
+            f.track_id(entry["workspace_id"])
+        f.track_fixture_repo_workspaces()
+        check(
+            sorted(nested) == ["alpha", "beta"], f"one nested worktree workspace per repo: {sorted(nested)}"
+        )
+        check(
+            all(entry["label"] == "zz-test-nested" for entry in nested.values()),
+            "nested workspaces are labelled with the feature name",
+        )
+        by_folder = {wt["folder"]: wt.get("workspace_id") for wt in payload["worktrees"]}
+        check(
+            by_folder == {name: entry["workspace_id"] for name, entry in nested.items()},
+            f"json reports the nested workspace per worktree: {by_folder}",
+        )
+        parents = [
+            w
+            for w in herdr("workspace", "list")["workspaces"]
+            if (w.get("worktree") or {}).get("is_linked_worktree") is False
+            and Path(w["worktree"]["repo_root"]).resolve()
+            in {(f.repos / "alpha").resolve(), (f.repos / "beta").resolve()}
+        ]
+        check(len(parents) == 2, f"Herdr opened the two repository parents: {[p['label'] for p in parents]}")
+        m = f.manifest("zz-test-nested")
+        check(m["workspace"]["id"] == ws, "manifest hint is the feature workspace, not a nested one")
+        _, listing = f.cli("list", "--json", "--no-states")
+        mine = [item for item in listing if item["feature"] == "zz-test-nested"][0]
+        check(mine["workspace_id"] == ws and mine["status"] == "open", "list maps the feature workspace")
+        check(
+            {wt["folder"]: wt["workspace_id"] for wt in mine["worktrees"]} == by_folder,
+            "list maps each nested workspace",
+        )
+
+        print("\n=== S2. add on an open feature opens a nested workspace for the new entry only")
+        _, payload = f.cli(
+            "add", "--feature", "zz-test-nested", "--repo", "delta-noremote", "--yes", "--json"
+        )
+        nested = nested_workspaces(root)
+        for entry in nested.values():
+            f.track_id(entry["workspace_id"])
+        f.track_fixture_repo_workspaces()
+        check(sorted(nested) == ["alpha", "beta", "delta-noremote"], f"nested now {sorted(nested)}")
+        check(payload["workspace_id"] == ws, "feature workspace unchanged after add")
+
+        print("\n=== S3. open re-creates only what is missing")
+        herdr("workspace", "close", nested["beta"]["workspace_id"])
+        _, payload = f.cli("open", "--feature", "zz-test-nested", "--json")
+        check(payload["created"] is True and payload["workspace_id"] == ws, "open kept the feature workspace")
+        nested = nested_workspaces(root)
+        for entry in nested.values():
+            f.track_id(entry["workspace_id"])
+        check("beta" in nested, "open reopened the closed nested workspace")
+        _, payload = f.cli("open", "--feature", "zz-test-nested", "--json")
+        check(payload["created"] is False, "second open created nothing")
+        count = len([w for w in herdr("workspace", "list")["workspaces"] if w["label"] == "zz-test-nested"])
+        check(count == 4, f"exactly one feature workspace plus three nested ({count})")
+
+        print("\n=== S4. drop closes the nested workspace; remove closes everything")
+        f.cli("drop", "--feature", "zz-test-nested", "--worktree", "delta-noremote", "--yes", "--force")
+        check("delta-noremote" not in nested_workspaces(root), "dropped entry's workspace closed")
+        _, payload = f.cli("remove", "--feature", "zz-test-nested", "--yes", "--force", "--json")
+        check(payload["closed_workspace"] == ws, "remove closed the feature workspace")
+        check(sorted(payload["closed_repo_workspaces"]) == ["alpha", "beta"], "remove reported nested closes")
+        check(nested_workspaces(root) == {}, "no nested workspaces remain")
+        check(workspace_by_label("zz-test-nested") is None, "no zz-test-nested workspace remains")
+
+        print("\n=== S5. popup: new, open and remove with workspaces = both")
+        root2 = f.features / "zz-test-nested2"
+        f.run("new", fzf=["alpha"], inputs=["zz-test-nested2", "y"])
+        ws2 = f.track("zz-test-nested2")
+        nested = nested_workspaces(root2)
+        for entry in nested.values():
+            f.track_id(entry["workspace_id"])
+        check(
+            ws2 is not None and sorted(nested) == ["alpha"], "popup new opened feature and nested workspace"
+        )
+        focused = [w for w in herdr("workspace", "list")["workspaces"] if w["focused"]]
+        check(bool(focused) and focused[0]["workspace_id"] == ws2, "popup new focused the feature workspace")
+        herdr("workspace", "close", nested["alpha"]["workspace_id"])
+        f.run("open", fzf=["zz-test-nested2"], inputs=[])
+        nested = nested_workspaces(root2)
+        for entry in nested.values():
+            f.track_id(entry["workspace_id"])
+        check("alpha" in nested, "popup open reopened the nested workspace")
+        f.run("remove", fzf=["zz-test-nested2"], inputs=["zz-test-nested2", "n"])
+        check(not root2.exists(), "popup remove deleted the feature")
+        check(
+            nested_workspaces(root2) == {} and workspace_by_label("zz-test-nested2") is None,
+            "popup remove closed all",
+        )
+    finally:
+        f.config = plain_config
+
+
 def scenario_cleanup_rest(f: Fixture) -> None:
     print("\n=== L. remove the remaining test features")
     for name in ("zz-test-two", "zz-test-three", "zz-test-four", "zz-test-six"):
@@ -528,6 +674,7 @@ def main() -> int:
             scenario_rollback,
             scenario_interrupted,
             scenario_cli,
+            scenario_nested,
             scenario_cleanup_rest,
         ):
             try:

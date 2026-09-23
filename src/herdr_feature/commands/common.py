@@ -18,14 +18,18 @@ def load_features(config: Config) -> list[Feature]:
     return manifest.discover(config.features_directory)
 
 
-def status_word(feature: Feature, live: dict[str, str]) -> str:
+def status_word(
+    feature: Feature, live: dict[str, str], repo_live: dict[str, dict[str, str]] | None = None
+) -> str:
     if not feature.readable:
         return "[corrupt]"
     if feature.version > manifest.VERSION:
         return "[newer version]"
     if feature.status == manifest.STATUS_CREATING:
         return "[interrupted]"
-    return "open" if feature.name in live else "closed"
+    if feature.name in live or (repo_live or {}).get(feature.name):
+        return "open"
+    return "closed"
 
 
 def choose_feature(
@@ -35,6 +39,7 @@ def choose_feature(
     prompt_text: str,
     header: str,
     only_mutable: bool = False,
+    repo_live: dict[str, dict[str, str]] | None = None,
 ) -> Feature:
     candidates = [f for f in features if (f.mutable if only_mutable else True)]
     if not candidates:
@@ -46,7 +51,7 @@ def choose_feature(
             ui.encode_row(
                 str(feature.root),
                 f"{feature.name:<32}",
-                f"{status_word(feature, live):<10}",
+                f"{status_word(feature, live, repo_live):<10}",
                 count if feature.readable else feature.error or "",
             )
         )
@@ -351,3 +356,35 @@ def live_map(features: list[Feature]) -> dict[str, str]:
     except herdr.HerdrError as error:
         ui.warn(f"could not query Herdr for open workspaces: {error}")
         return {}
+
+
+def repo_live_map(features: list[Feature]) -> dict[str, dict[str, str]]:
+    try:
+        return herdr.map_repo_live(features)
+    except herdr.HerdrError as error:
+        ui.warn(f"could not query Herdr for open worktree workspaces: {error}")
+        return {}
+
+
+def report_opened(feature: Feature, opened: herdr.Opened) -> None:
+    if opened.workspace_id:
+        ui.ok(f"workspace {opened.workspace_id} ({feature.name}) at {feature.root}")
+    for folder, workspace_id in opened.repo_workspaces.items():
+        ui.ok(f"workspace {workspace_id} ({folder}) nested under its repository")
+    for failure in opened.failures:
+        ui.warn(f"could not open a worktree workspace for {failure}")
+
+
+def open_workspaces(
+    config: Config,
+    feature: Feature,
+    *,
+    focus: bool,
+    workspace_id: str | None = None,
+    only: list[Worktree] | None = None,
+) -> herdr.Opened:
+    """Open the configured workspaces for a feature and record the feature workspace hint."""
+    opened = herdr.open_feature(config, feature, focus=focus, workspace_id=workspace_id, only=only)
+    if opened.workspace_id and feature.mutable:
+        feature.save()
+    return opened

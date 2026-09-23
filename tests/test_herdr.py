@@ -8,6 +8,27 @@ from .helpers import SRC  # noqa: F401
 from herdr_feature import herdr, manifest
 
 
+class _Mode:
+    def __init__(self, mode: str):
+        self.feature_workspace = mode in ("feature", "both")
+        self.repo_workspaces = mode in ("repos", "both")
+
+
+def _entry(folder: str) -> manifest.Worktree:
+    return manifest.Worktree(
+        repo_name=folder,
+        repo_path=f"/repos/{folder}",
+        folder=folder,
+        suffix=None,
+        branch=f"feat-{folder}",
+        branch_created=True,
+        branch_source="new",
+        base_ref=None,
+        base_commit=None,
+        remote=None,
+    )
+
+
 class Mapping(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -91,6 +112,114 @@ class Mapping(unittest.TestCase):
             mock.patch.object(herdr, "workspaces", return_value=[]),
         ):
             self.assertIs(herdr.current_feature([self.one, self.two], ctx), self.one)
+
+    def test_nested_worktree_workspaces_are_not_the_feature_workspace(self):
+        nested_checkout = str(self.one.root / "alpha")
+        panes = [
+            {"pane_id": "w5:p1", "workspace_id": "w5", "cwd": nested_checkout, "foreground_cwd": None},
+        ]
+        workspaces = [
+            {
+                "workspace_id": "w5",
+                "label": "one",
+                "worktree": {"checkout_path": nested_checkout, "is_linked_worktree": True},
+            },
+            {
+                "workspace_id": "w6",
+                "label": "alpha",
+                "worktree": {"checkout_path": "/repos/alpha", "is_linked_worktree": False},
+            },
+        ]
+        with (
+            mock.patch.object(herdr, "panes", return_value=panes),
+            mock.patch.object(herdr, "workspaces", return_value=workspaces),
+        ):
+            self.assertEqual(herdr.map_live([self.one], heal=False), {})
+            self.assertEqual(herdr.map_repo_live([self.one]), {})  # no manifest entry yet
+            self.one.worktrees.append(_entry("alpha"))
+            self.assertEqual(herdr.map_repo_live([self.one]), {"one": {"alpha": "w5"}})
+            ctx = herdr.Context(
+                workspace_id="w5", workspace_cwd=None, focused_pane_cwd=None, workspace_label=None
+            )
+            self.assertIs(herdr.current_feature([self.one, self.two], ctx), self.one)
+
+    def test_feature_and_nested_workspaces_coexist(self):
+        root = str(self.one.root)
+        nested_checkout = str(self.one.root / "alpha")
+        self.one.worktrees.append(_entry("alpha"))
+        panes = [
+            {"pane_id": "w5:p1", "workspace_id": "w5", "cwd": nested_checkout, "foreground_cwd": None},
+            {"pane_id": "w7:p1", "workspace_id": "w7", "cwd": root, "foreground_cwd": None},
+        ]
+        workspaces = [
+            {
+                "workspace_id": "w5",
+                "label": "one",
+                "worktree": {"checkout_path": nested_checkout, "is_linked_worktree": True},
+            },
+            {"workspace_id": "w7", "label": "one"},
+        ]
+        with (
+            mock.patch.object(herdr, "panes", return_value=panes),
+            mock.patch.object(herdr, "workspaces", return_value=workspaces),
+        ):
+            self.assertEqual(herdr.map_live([self.one], heal=False), {"one": "w7"})
+            self.assertEqual(herdr.repo_workspaces(self.one), {"alpha": "w5"})
+
+    def test_open_feature_respects_mode_and_is_idempotent(self):
+        self.one.worktrees.append(_entry("alpha"))
+        self.one.worktrees.append(_entry("beta"))
+        calls = []
+
+        def fake_call(*args):
+            calls.append(args)
+            if args[:2] == ("workspace", "create"):
+                return {"workspace": {"workspace_id": "wF", "label": "one"}}
+            if args[:2] == ("worktree", "open"):
+                folder = Path(args[args.index("--path") + 1]).name
+                return {"workspace": {"workspace_id": f"w-{folder}"}, "already_open": False}
+            raise AssertionError(args)
+
+        existing = {"alpha": "w-alpha"}
+        with (
+            mock.patch.object(herdr, "call", side_effect=fake_call),
+            mock.patch.object(herdr, "repo_workspaces", return_value=existing),
+            mock.patch.object(herdr, "focus_workspace") as focus,
+        ):
+            opened = herdr.open_feature(_Mode("both"), self.one, focus=True)
+            self.assertEqual(opened.workspace_id, "wF")
+            self.assertEqual(opened.repo_workspaces, {"alpha": "w-alpha", "beta": "w-beta"})
+            self.assertTrue(opened.created)
+            focus.assert_called_once_with("wF")
+            opened_paths = [a[a.index("--path") + 1] for a in calls if a[:2] == ("worktree", "open")]
+            self.assertEqual(opened_paths, [str(self.one.root / "beta")])
+
+            calls.clear()
+            opened = herdr.open_feature(_Mode("repos"), self.one, focus=True, workspace_id=None)
+            self.assertIsNone(opened.workspace_id)
+            self.assertEqual(opened.any, "w-alpha")
+            self.assertFalse(any(a[:2] == ("workspace", "create") for a in calls))
+
+            calls.clear()
+            opened = herdr.open_feature(_Mode("feature"), self.one, focus=False, workspace_id="wLIVE")
+            self.assertEqual(opened.workspace_id, "wLIVE")
+            self.assertEqual(calls, [])
+            self.assertFalse(opened.created)
+
+    def test_open_feature_collects_nested_failures(self):
+        self.one.worktrees.append(_entry("alpha"))
+
+        def fake_call(*args):
+            raise herdr.HerdrError("worktree_not_found", "nope", args)
+
+        with (
+            mock.patch.object(herdr, "call", side_effect=fake_call),
+            mock.patch.object(herdr, "repo_workspaces", return_value={}),
+        ):
+            opened = herdr.open_feature(_Mode("repos"), self.one, focus=False)
+        self.assertEqual(opened.repo_workspaces, {})
+        self.assertEqual(len(opened.failures), 1)
+        self.assertIn("alpha", opened.failures[0])
 
     def test_error_parsing(self):
         completed = mock.Mock(returncode=1, stdout="", stderr='{"error":{"code":"ui_busy","message":"busy"}}')

@@ -65,6 +65,8 @@ def run(config: Config) -> None:
             raise ui.Cancelled()
 
         ui.heading("Dropping")
+        for workspace_id in herdr.close_repo_workspaces(feature, chosen):
+            ui.ok(f"closed worktree workspace {workspace_id}")
         for worktree in chosen:
             note = gitops.worktree_remove(Path(worktree.repo_path), feature.path_of(worktree))
             feature.worktrees.remove(worktree)

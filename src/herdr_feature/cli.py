@@ -33,11 +33,18 @@ class Result:
 # --- helpers ------------------------------------------------------------------
 
 
-def _feature_dict(feature: manifest.Feature, live: dict[str, str], *, states: bool) -> dict:
+def _feature_dict(
+    feature: manifest.Feature,
+    live: dict[str, str],
+    *,
+    states: bool,
+    repo_live: dict[str, dict[str, str]] | None = None,
+) -> dict:
+    nested = (repo_live or {}).get(feature.name, {})
     data = {
         "feature": feature.name,
         "root": str(feature.root),
-        "status": common.status_word(feature, live),
+        "status": common.status_word(feature, live, repo_live),
         "workspace_id": live.get(feature.name),
         "branch_prefix": feature.branch_prefix,
         "worktrees": [],
@@ -54,6 +61,7 @@ def _feature_dict(feature: manifest.Feature, live: dict[str, str], *, states: bo
             "branch": wt.branch,
             "branch_created": wt.branch_created,
             "branch_source": wt.branch_source,
+            "workspace_id": nested.get(wt.folder),
         }
         if states:
             state = gitops.worktree_state(feature.path_of(wt))
@@ -142,7 +150,8 @@ def _emit(args: argparse.Namespace, payload: dict, human: str) -> None:
 def cmd_list(args, config: Config) -> int:
     features = common.load_features(config)
     live = common.live_map(features)
-    payload = [_feature_dict(f, live, states=not args.no_states) for f in features]
+    repo_live = common.repo_live_map(features)
+    payload = [_feature_dict(f, live, states=not args.no_states, repo_live=repo_live) for f in features]
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
@@ -154,7 +163,8 @@ def cmd_list(args, config: Config) -> int:
         print(f"{item['feature']:<32} {item['status']:<14} {ws:<6} {len(item['worktrees'])} worktree(s)")
         for wt in item["worktrees"]:
             state = wt.get("state_detail", "")
-            print(f"    {wt['folder']:<36} {wt['branch']:<36} {state}")
+            nested = wt.get("workspace_id") or "-"
+            print(f"    {wt['folder']:<36} {wt['branch']:<36} {nested:<6} {state}")
     return 0
 
 
@@ -214,21 +224,37 @@ def cmd_new(args, config: Config) -> int:
         root.mkdir()
         common.execute(feature, planned, is_new=True)
 
-    workspace_id = None
+    opened = herdr.Opened()
     if not args.no_workspace:
         try:
-            workspace_id = herdr.create_workspace(feature, focus=args.focus)
-            feature.save()
+            opened = common.open_workspaces(config, feature, focus=args.focus)
         except herdr.HerdrError as error:
             ui.warn(f"feature created but its workspace could not be opened: {error}")
-    payload = _feature_dict(feature, {feature.name: workspace_id} if workspace_id else {}, states=False)
+        for failure in opened.failures:
+            ui.warn(f"could not open a worktree workspace for {failure}")
+    live, repo_live = _opened_maps(feature, opened)
+    payload = _feature_dict(feature, live, states=False, repo_live=repo_live)
     _emit(
         args,
         payload,
-        f"created {feature.name} with {len(planned)} worktree(s) at {root}"
-        + (f"; workspace {workspace_id}" if workspace_id else ""),
+        f"created {feature.name} with {len(planned)} worktree(s) at {root}" + _opened_summary(opened),
     )
     return 0
+
+
+def _opened_maps(feature: manifest.Feature, opened: herdr.Opened) -> tuple[dict, dict]:
+    live = {feature.name: opened.workspace_id} if opened.workspace_id else {}
+    repo_live = {feature.name: opened.repo_workspaces} if opened.repo_workspaces else {}
+    return live, repo_live
+
+
+def _opened_summary(opened: herdr.Opened) -> str:
+    parts = []
+    if opened.workspace_id:
+        parts.append(f"workspace {opened.workspace_id}")
+    if opened.repo_workspaces:
+        parts.append(f"{len(opened.repo_workspaces)} nested worktree workspace(s)")
+    return f"; {', '.join(parts)}" if parts else ""
 
 
 def cmd_add(args, config: Config) -> int:
@@ -267,15 +293,26 @@ def cmd_add(args, config: Config) -> int:
             }
             _emit(args, payload, "dry run only; rerun with --yes to add.")
             return 0
-        common.execute(feature, planned, is_new=False)
+        added = common.execute(feature, planned, is_new=False)
     live = common.live_map([feature])
-    if args.open and feature.name not in live:
-        workspace_id = herdr.create_workspace(feature, focus=args.focus)
-        feature.save()
-        live[feature.name] = workspace_id
+    repo_live = common.repo_live_map([feature])
+    is_open = feature.name in live or bool(repo_live.get(feature.name))
+    if args.open or is_open:
+        # An open feature gets nested workspaces for the new entries (when configured);
+        # --open also creates whatever the mode calls for when nothing is open yet.
+        opened = common.open_workspaces(
+            config,
+            feature,
+            focus=args.focus,
+            workspace_id=live.get(feature.name),
+            only=added if is_open and not args.open else None,
+        )
+        for failure in opened.failures:
+            ui.warn(f"could not open a worktree workspace for {failure}")
+        live, repo_live = _opened_maps(feature, opened)
     _emit(
         args,
-        _feature_dict(feature, live, states=False),
+        _feature_dict(feature, live, states=False, repo_live=repo_live),
         f"added {len(planned)} worktree(s) to {feature.name}",
     )
     return 0
@@ -288,23 +325,21 @@ def cmd_open(args, config: Config) -> int:
     if not feature.readable:
         raise ui.Abort(f"{feature.name} is unreadable: {feature.error}")
     live = common.live_map(features)
-    workspace_id = live.get(feature.name)
-    created = False
-    if workspace_id:
-        if args.focus:
-            herdr.focus_workspace(workspace_id)
-    else:
-        workspace_id = herdr.create_workspace(feature, focus=args.focus)
-        if feature.mutable:
-            feature.save()
-        created = True
+    opened = common.open_workspaces(config, feature, focus=args.focus, workspace_id=live.get(feature.name))
+    for failure in opened.failures:
+        ui.warn(f"could not open a worktree workspace for {failure}")
     payload = {
         "feature": feature.name,
         "root": str(feature.root),
-        "workspace_id": workspace_id,
-        "created": created,
+        "workspace_id": opened.workspace_id,
+        "repo_workspaces": opened.repo_workspaces,
+        "created": opened.created,
     }
-    _emit(args, payload, f"{feature.name}: workspace {workspace_id}" + (" (created)" if created else ""))
+    _emit(
+        args,
+        payload,
+        f"{feature.name}: workspace {opened.any or '-'}" + (" (created)" if opened.created else ""),
+    )
     return 0
 
 
@@ -337,6 +372,8 @@ def cmd_drop(args, config: Config) -> int:
         _emit(args, payload, "dry run only; rerun with --yes to drop.")
         return 0
     with mutation_lock():
+        for workspace_id in herdr.close_repo_workspaces(feature, chosen):
+            ui.ok(f"closed worktree workspace {workspace_id}")
         for wt in chosen:
             gitops.worktree_remove(Path(wt.repo_path), feature.path_of(wt))
             feature.worktrees.remove(wt)
@@ -365,11 +402,13 @@ def cmd_remove(args, config: Config) -> int:
         )
     live = common.live_map(features)
     workspace_id = live.get(feature.name)
+    nested = common.repo_live_map([feature]).get(feature.name, {})
     if not args.yes:
         payload = {
             "dry_run": True,
             "feature": feature.name,
             "workspace_id": workspace_id,
+            "repo_workspaces": nested,
             "worktrees": [
                 {
                     "folder": wt.folder,
@@ -385,14 +424,16 @@ def cmd_remove(args, config: Config) -> int:
     entries = list(feature.worktrees)
     deleted_branches = []
     with mutation_lock():
-        if workspace_id:
-            busy = herdr.busy_panes(workspace_id)
+        closing = [*nested.values(), *([workspace_id] if workspace_id else [])]
+        if closing:
+            busy = herdr.busy_panes(*closing)
             if busy and not args.force:
                 raise ui.Abort(
-                    f"workspace {workspace_id} has {len(busy)} agent(s) working or waiting; pass --force to close it anyway."
+                    f"the feature's workspaces have {len(busy)} agent(s) working or waiting; pass --force to close them anyway."
                 )
-            herdr.close_workspace(workspace_id)
-            ui.ok(f"closed workspace {workspace_id}")
+            for closing_id in closing:
+                herdr.close_workspace(closing_id)
+                ui.ok(f"closed workspace {closing_id}")
         for wt in entries:
             gitops.worktree_remove(Path(wt.repo_path), feature.path_of(wt))
             feature.worktrees.remove(wt)
@@ -411,6 +452,7 @@ def cmd_remove(args, config: Config) -> int:
         "feature": feature.name,
         "removed": True,
         "closed_workspace": workspace_id,
+        "closed_repo_workspaces": nested,
         "deleted_branches": deleted_branches,
         "kept_branches": [
             {"repo": wt.repo_name, "branch": wt.branch}

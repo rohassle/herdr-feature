@@ -11,7 +11,13 @@ from pathlib import Path
 from .ui import Abort, confirm, warn
 
 DEFAULT_FEATURES_DIRECTORY = "~/.herdr/features"
-KNOWN_KEYS = {"repo_directories", "repos", "features_directory", "branch_prefix"}
+KNOWN_KEYS = {"repo_directories", "repos", "features_directory", "branch_prefix", "workspaces"}
+
+# Which Herdr workspaces a feature gets (see docs/adr/0007).
+WORKSPACES_FEATURE = "feature"  # one flat workspace rooted at the feature folder
+WORKSPACES_REPOS = "repos"  # one worktree workspace per entry, nested under its repository
+WORKSPACES_BOTH = "both"
+WORKSPACE_MODES = (WORKSPACES_FEATURE, WORKSPACES_REPOS, WORKSPACES_BOTH)
 
 TEMPLATE = """# herdr-feature configuration
 # Location: herdr plugin config-dir feature
@@ -28,6 +34,12 @@ features_directory = "~/.herdr/features"
 
 # Prepended to every branch the plugin creates. May contain '/', e.g. "rh/" or "feat/".
 branch_prefix = ""
+
+# Which Herdr workspaces a feature gets:
+#   "feature"  one workspace rooted at the feature folder (all repositories side by side)
+#   "repos"    one workspace per worktree, nested in the sidebar under its repository
+#   "both"     the feature workspace plus the nested per-repository workspaces
+workspaces = "feature"
 """
 
 
@@ -38,7 +50,16 @@ class Config:
     repos: list[Path] = field(default_factory=list)
     features_directory: Path = Path(DEFAULT_FEATURES_DIRECTORY).expanduser()
     branch_prefix: str = ""
+    workspaces: str = WORKSPACES_FEATURE
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def feature_workspace(self) -> bool:
+        return self.workspaces in (WORKSPACES_FEATURE, WORKSPACES_BOTH)
+
+    @property
+    def repo_workspaces(self) -> bool:
+        return self.workspaces in (WORKSPACES_REPOS, WORKSPACES_BOTH)
 
 
 def config_path() -> Path:
@@ -137,6 +158,11 @@ def parse_config(raw: dict, path: Path) -> Config:
                 f"branches will look like {prefix}feature-name"
             )
     config.branch_prefix = prefix
+
+    mode = raw.get("workspaces", WORKSPACES_FEATURE)
+    if mode not in WORKSPACE_MODES:
+        raise Abort(f"{path}: workspaces must be one of {', '.join(WORKSPACE_MODES)}; got {mode!r}.")
+    config.workspaces = mode
 
     if not config.repo_directories and not config.repos:
         raise Abort(

@@ -6,7 +6,9 @@ description: Create and manage cross-repository feature workspaces in Herdr from
 # herdr-feature
 
 A feature is a folder under `~/.herdr/features/<name>/` holding one Git worktree per
-repository, plus one Herdr workspace whose tab starts in that folder. `herdr-feature` is
+repository, plus one Herdr workspace whose tab starts in that folder. Depending on the
+`workspaces` config key, each worktree may also have its own Herdr worktree workspace,
+nested in the sidebar under its repository (`"repos"` or `"both"`). `herdr-feature` is
 the non-interactive twin of the plugin's `prefix+f` popup.
 
 Check you are inside Herdr first: `test "${HERDR_ENV:-}" = 1`.
@@ -42,8 +44,10 @@ herdr-feature remove --feature pay-1234-retry --yes        # add --delete-branch
 
 ## After creating a feature
 
-The JSON result carries `workspace_id` and each worktree's `path`. Continue with the
-Herdr CLI, for example to start an agent in the new workspace:
+The JSON result carries `workspace_id` (the feature workspace, `null` when the config
+opens only nested workspaces) and, per worktree, its `path` and `workspace_id` (its nested
+worktree workspace, `null` when not open). Continue with the Herdr CLI, for example to
+start an agent in the new workspace:
 
 ```bash
 ws=$(herdr-feature new --name X --repo a --repo b --yes --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["workspace_id"])')
@@ -51,4 +55,6 @@ pane=$(herdr pane list --workspace "$ws" | python3 -c 'import json,sys;print(jso
 herdr agent start worker --kind claude --pane "$pane"
 ```
 
-Closing a workspace never deletes a feature; only `remove` does.
+Closing a workspace never deletes a feature; only `remove` does. `remove` and `drop` close
+the nested worktree workspaces they make obsolete, but never the repository workspaces
+Herdr opened as their parents.

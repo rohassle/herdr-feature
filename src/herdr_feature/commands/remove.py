@@ -17,11 +17,13 @@ def run(config: Config) -> None:
     if not features:
         raise ui.Abort(f"No features under {config.features_directory}.")
     live = common.live_map(features)
+    repo_live = common.repo_live_map(features)
     feature = common.choose_feature(
         features,
         live,
         prompt_text="remove> ",
         header="Enter: choose the feature to remove   Esc: cancel",
+        repo_live=repo_live,
     )
     if not feature.readable:
         raise ui.Abort(
@@ -39,15 +41,16 @@ def run(config: Config) -> None:
         ui.step("(no worktrees)")
 
     workspace_id = live.get(feature.name)
+    nested = repo_live.get(feature.name, {})
     with mutation_lock():
-        if workspace_id:
-            busy = herdr.busy_panes(workspace_id)
+        if workspace_id or nested:
+            busy = herdr.busy_panes(*filter(None, [workspace_id, *nested.values()]))
             if busy:
-                ui.warn(f"workspace {workspace_id} has {len(busy)} agent(s) still working or waiting:")
+                ui.warn(f"the feature's workspaces have {len(busy)} agent(s) still working or waiting:")
                 for pane in busy:
                     ui.step(f"{pane['pane_id']:<8} {pane.get('agent') or ''} {pane.get('agent_status')}")
                 if not ui.confirm(
-                    "Close the workspace anyway? Running processes will be killed.", default=False
+                    "Close the workspaces anyway? Running processes will be killed.", default=False
                 ):
                     raise ui.Cancelled()
 
@@ -60,10 +63,14 @@ def run(config: Config) -> None:
         elif not ui.confirm(f"Remove every worktree and the folder of {feature.name!r}?", default=False):
             raise ui.Cancelled()
 
-        if workspace_id:
-            ui.heading("Closing workspace")
-            herdr.close_workspace(workspace_id)
-            ui.ok(f"closed {workspace_id}")
+        if workspace_id or nested:
+            ui.heading("Closing workspaces")
+            for folder, nested_id in nested.items():
+                herdr.close_workspace(nested_id)
+                ui.ok(f"closed {nested_id} ({folder})")
+            if workspace_id:
+                herdr.close_workspace(workspace_id)
+                ui.ok(f"closed {workspace_id}")
 
         ui.heading("Removing worktrees")
         entries = list(feature.worktrees)

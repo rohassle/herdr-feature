@@ -54,6 +54,20 @@ class ConfigParsing(unittest.TestCase):
         )
         self.assertTrue(any("branch_prefix" in w for w in parsed.warnings))
 
+    def test_workspaces_mode(self):
+        base = {"repo_directories": [str(self.base / "work")]}
+        parsed = cfg.parse_config(base, self.path)
+        self.assertEqual(parsed.workspaces, "feature")
+        self.assertTrue(parsed.feature_workspace)
+        self.assertFalse(parsed.repo_workspaces)
+        parsed = cfg.parse_config({**base, "workspaces": "both"}, self.path)
+        self.assertTrue(parsed.feature_workspace and parsed.repo_workspaces)
+        parsed = cfg.parse_config({**base, "workspaces": "repos"}, self.path)
+        self.assertFalse(parsed.feature_workspace)
+        self.assertTrue(parsed.repo_workspaces)
+        with self.assertRaises(Abort):
+            cfg.parse_config({**base, "workspaces": "nested"}, self.path)
+
     def test_no_repos_is_fatal(self):
         with self.assertRaises(Abort):
             cfg.parse_config({"repo_directories": []}, self.path)

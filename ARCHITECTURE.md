@@ -52,7 +52,12 @@ Both paths converge in `commands/common.py`:
    created, then removes the root (for `new`) or rewrites the manifest (for `add`).
 
 Workspace creation happens after the atomic unit: if Herdr refuses, the feature is still on
-disk and `open` creates the workspace later.
+disk and `open` creates the workspace later. Which workspaces a feature gets is the
+`workspaces` config key (ADR 0007): the flat **feature workspace** rooted at the feature
+folder, one **per-repository worktree workspace** per entry (opened with `herdr worktree
+open`, so Herdr nests it under the repository's own workspace in the sidebar), or both.
+`herdr.open_feature` opens whatever the mode calls for and is not open yet; it is
+idempotent and used by `new`, `open` and `add`.
 
 ## Modules
 
@@ -65,7 +70,7 @@ disk and `open` creates the workspace later.
 | `ui.py` | fzf wrapper (hidden key column, exit codes, neutralised env), prompts with keys, scripted answers for tests, non-interactive mode, output stream. | fzf |
 | `gitops.py` | All git: default-branch chain, parallel fetch with error classification, branch matrix, `worktree add/remove/prune`, state. | git |
 | `manifest.py` | `Feature`/`Worktree` dataclasses, versioned load/validate/migrate, atomic save, discovery, branch claims. | filesystem |
-| `herdr.py` | `herdr` CLI wrapper with stderr JSON error parsing; invocation context; feature to workspace mapping; workspace create/focus/close. | herdr |
+| `herdr.py` | `herdr` CLI wrapper with stderr JSON error parsing; invocation context; feature to workspace mapping (feature workspace via pane cwd, per-repository workspaces via Herdr worktree provenance); open/focus/close of both kinds. | herdr |
 | `discovery.py` | Repository scanner (primary checkouts only). | filesystem |
 | `config.py` | TOML config with validation and first-run template. | filesystem, git |
 | `names.py` | Name rules, branch/folder derivation, `git check-ref-format`. | git |
@@ -84,7 +89,11 @@ disk and `open` creates the workspace later.
 - **`git worktree add --no-track`** for new branches: git would otherwise set upstream to
   `origin/<default>` and "unpushed" detection would be wrong. Remote-only branches use
   `--track -b`.
-- **Flat top-level workspace** (0003), not nested under an anchor repository.
+- **Flat top-level workspace** (0003), not nested under an anchor repository. A feature root
+  cannot be a Herdr sidebar parent (grouping is per repository), so nesting is offered the
+  other way round (0007): each worktree entry as a worktree workspace under its repository,
+  opt-in via `workspaces = "repos" | "both"`. Those workspaces are recognised by their
+  checkout path in Herdr's worktree provenance and excluded from the pane scan of 0006.
 - **One popup entrypoint** (0005) because a popup cannot open another popup and cannot be
   addressed via pane APIs; the menu runs sub-commands in-process.
 

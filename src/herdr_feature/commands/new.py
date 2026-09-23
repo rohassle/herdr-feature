@@ -47,14 +47,16 @@ def run(config: Config) -> None:
             raise ui.Abort(f"{root} appeared while planning; try again.") from None
         common.execute(feature, planned, is_new=True)
 
-    ui.heading("Opening workspace")
+    ui.heading("Opening workspaces" if config.repo_workspaces else "Opening workspace")
     try:
-        workspace_id = herdr.create_workspace(feature, focus=True)
-        feature.save()
-        ui.ok(f"workspace {workspace_id} ({feature.name}) at {root}")
+        opened = common.open_workspaces(config, feature, focus=True)
     except herdr.HerdrError as error:
         ui.warn(f"the feature is on disk but its workspace could not be created:\n  {error}")
         ui.warn("use 'open' to try again.")
         ui.pause()
         return
+    common.report_opened(feature, opened)
+    if opened.failures:
+        ui.warn("use 'open' to try the missing ones again.")
+        ui.pause()
     print(f"\n{feature.name}: {len(planned)} worktree(s) ready.")

@@ -20,6 +20,22 @@ sibling directories.
 Closing the workspace never deletes anything. Removal is a separate, explicit, reviewed
 command.
 
+Optionally, every worktree of a feature also gets its own Herdr worktree workspace, nested
+in the sidebar under its repository's workspace (`workspaces = "both"` in the config):
+
+```
+payments-api                          <- the repository's own workspace
+  └ pay-1234-retry                    <- worktree workspace for payments-api/
+  └ pay-1234-retry@migration          <- worktree workspace for payments-api@migration/
+payments-web
+  └ pay-1234-retry
+pay-1234-retry                        <- the feature workspace, all repos side by side
+```
+
+Herdr groups the sidebar by repository, so the nested rows sit under each repository
+rather than under the feature. A feature folder that is not itself a repository cannot be
+a Herdr group parent; see [docs/adr/0007](docs/adr/0007-optional-nested-worktree-workspaces.md).
+
 ## Requirements
 
 - Herdr 0.9.0 or newer
@@ -83,14 +99,16 @@ is already part of the feature is marked with `●`; picking it again asks for a
 suffix and creates a second worktree, `<repo>@<suffix>` on `<branch>-<suffix>`.
 
 **open**: list every feature on disk with its status (`open`, `closed`, `[interrupted]`).
-Open features are focused; closed ones get a fresh workspace.
+Open features are focused; closed ones get a fresh workspace. With nested workspaces
+enabled, `open` also re-opens any per-repository workspace that is missing.
 
 **drop**: remove individual worktrees from the current feature. Branches are kept.
 Worktrees with uncommitted or unpushed work require typing the feature name.
 
-**remove**: show the state of every worktree, confirm, close the workspace, remove the
-worktrees and the folder, then offer to delete the local branches the plugin itself
-created. Branches it merely reused, and remote branches, are never deleted.
+**remove**: show the state of every worktree, confirm, close the workspace (and the nested
+per-repository workspaces), remove the worktrees and the folder, then offer to delete the
+local branches the plugin itself created. Branches it merely reused, and remote branches,
+are never deleted. The repository workspaces Herdr opened as group parents stay open.
 
 If a fetch fails (offline, VPN down) you are asked once whether to continue from the
 last fetched state or abort everything.
@@ -124,12 +142,27 @@ Inside a feature's workspace `--feature` may be omitted for `add`, `drop` and `r
 confirmation for worktrees with unsaved work. A ready-made agent skill lives in
 [skills/herdr-feature](skills/herdr-feature/SKILL.md).
 
+## Configuration
+
+`herdr plugin config-dir feature` names the folder holding `config.toml`; the first run
+writes a template. See [examples/config.toml](examples/config.toml).
+
+| key | meaning |
+|---|---|
+| `repo_directories` | folders scanned one level deep for repositories |
+| `repos` | extra repositories anywhere on disk |
+| `features_directory` | where feature roots are created (default `~/.herdr/features`) |
+| `branch_prefix` | prepended to every branch the plugin creates |
+| `workspaces` | `"feature"` (default): one workspace rooted at the feature folder. `"repos"`: one worktree workspace per entry, nested under its repository in the sidebar. `"both"`: both. |
+
 ## How it decides which workspace is a feature's
 
 Herdr reassigns workspace ids when its server restarts, so the manifest only keeps a hint.
 The plugin scans the working directories of all live panes; a pane inside a feature folder
 marks that workspace as the feature's, and the hint is refreshed. See
-[docs/adr/0006](docs/adr/0006-workspace-identity-comes-from-pane-cwd.md).
+[docs/adr/0006](docs/adr/0006-workspace-identity-comes-from-pane-cwd.md). Nested
+per-repository workspaces are recognised by the checkout path Herdr records on them, and
+are never mistaken for the feature workspace.
 
 ## Development
 

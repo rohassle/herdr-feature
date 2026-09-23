@@ -20,6 +20,7 @@ def resolve_target(config: Config, features: list[Feature], *, verb: str) -> tup
         prompt_text="feature> ",
         header=f"Choose the feature to {verb}",
         only_mutable=True,
+        repo_live=common.repo_live_map(features),
     )
     return feature, live
 
@@ -57,13 +58,23 @@ def run(config: Config) -> None:
         common.show_plan(planned)
         if not ui.confirm(f"Add {len(planned)} worktree(s) to {feature.name!r}?", default=True):
             raise ui.Cancelled()
-        common.execute(feature, planned, is_new=False)
+        added = common.execute(feature, planned, is_new=False)
 
     print(f"\n{feature.name}: added {len(planned)} worktree(s).")
-    if feature.name not in live:
-        if ui.confirm("The feature has no open workspace. Open it now?", default=True):
-            workspace_id = herdr.create_workspace(feature, focus=True)
-            feature.save()
-            ui.ok(f"workspace {workspace_id} opened")
-            return
+    is_open = feature.name in live or bool(herdr.repo_workspaces(feature))
+    if is_open:
+        if config.repo_workspaces:
+            ui.heading("Opening worktree workspaces")
+            opened = common.open_workspaces(
+                config, feature, focus=False, workspace_id=live.get(feature.name), only=added
+            )
+            common.report_opened(feature, opened)
+            ui.pause()
+        return
+    if ui.confirm("The feature has no open workspace. Open it now?", default=True):
+        opened = common.open_workspaces(config, feature, focus=True)
+        common.report_opened(feature, opened)
+        if opened.failures:
+            ui.pause()
+        return
     ui.pause()
