@@ -13,8 +13,8 @@ import shutil
 import subprocess
 import sys
 from collections import deque
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, Iterable
 
 FZF_CANDIDATES = ("/opt/homebrew/bin/fzf", "/usr/local/bin/fzf", "~/.local/bin/fzf")
 
@@ -81,7 +81,7 @@ def _read(label: str, key: str | None = None) -> str:
         return input(label)
     except (EOFError, KeyboardInterrupt):
         print()
-        raise Cancelled()
+        raise Cancelled() from None
 
 
 # --- output helpers -----------------------------------------------------------

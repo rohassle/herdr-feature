@@ -133,11 +133,19 @@ marks that workspace as the feature's, and the hint is refreshed. See
 
 ## Development
 
+Development uses [uv](https://docs.astral.sh/uv/); the plugin itself has no dependencies and
+runs on any system Python 3.11+.
+
 ```sh
-herdr plugin link "$PWD"
-python3 -m unittest discover -s tests -t .      # pure functions and real git in temp dirs
-python3 tests/e2e/run.py                        # inside Herdr: creates and removes zz-test-* workspaces
+uv sync
+uv run python -m unittest discover -s tests -t .   # pure functions and real git in temp dirs
+uv run tests/e2e/run.py                            # inside Herdr: creates and removes zz-test-* workspaces
+uv run ruff check .
+herdr plugin link "$PWD"                           # run the popup from this checkout
 ```
+
+See [AGENTS.md](AGENTS.md) for the working rules and [ARCHITECTURE.md](ARCHITECTURE.md) for how
+the pieces fit.
 
 Actions are not interactive, so the popup can be driven by `herdr plugin action invoke
 menu --plugin feature`. Plugin stderr lands in `herdr plugin log list --plugin feature`.

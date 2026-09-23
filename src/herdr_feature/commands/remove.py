@@ -18,7 +18,8 @@ def run(config: Config) -> None:
         raise ui.Abort(f"No features under {config.features_directory}.")
     live = common.live_map(features)
     feature = common.choose_feature(
-        features, live,
+        features,
+        live,
         prompt_text="remove> ",
         header="Enter: choose the feature to remove   Esc: cancel",
     )
@@ -45,7 +46,9 @@ def run(config: Config) -> None:
                 ui.warn(f"workspace {workspace_id} has {len(busy)} agent(s) still working or waiting:")
                 for pane in busy:
                     ui.step(f"{pane['pane_id']:<8} {pane.get('agent') or ''} {pane.get('agent_status')}")
-                if not ui.confirm("Close the workspace anyway? Running processes will be killed.", default=False):
+                if not ui.confirm(
+                    "Close the workspace anyway? Running processes will be killed.", default=False
+                ):
                     raise ui.Cancelled()
 
         careful = [wt for wt in feature.worktrees if states[wt.folder].needs_care]
@@ -72,10 +75,7 @@ def run(config: Config) -> None:
         ui.ok(f"removed {feature.root}")
 
     claims = manifest.branch_claims([f for f in features if f is not feature])
-    deletable = [
-        wt for wt in entries
-        if wt.branch_created and (wt.repo_path, wt.branch) not in claims
-    ]
+    deletable = [wt for wt in entries if wt.branch_created and (wt.repo_path, wt.branch) not in claims]
     kept = [wt for wt in entries if wt not in deletable]
     if kept:
         ui.heading("Branches kept (not created by this plugin, or shared with another feature)")
@@ -94,4 +94,3 @@ def run(config: Config) -> None:
                     ui.ok(f"{worktree.repo_name}: deleted {worktree.branch}")
     print(f"\n{feature.name} removed.")
     ui.pause()
-

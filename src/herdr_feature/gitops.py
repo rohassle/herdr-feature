@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
 
 from .ui import Abort
 
@@ -72,9 +72,9 @@ def has_remote(repo: Path, remote: str = "origin") -> bool:
 class Base:
     """Where new branches start from in one repository."""
 
-    branch: str            # e.g. "main"
-    remote: str | None     # "origin", or None for a repository without a remote
-    ref: str               # fully qualified ref to branch from
+    branch: str  # e.g. "main"
+    remote: str | None  # "origin", or None for a repository without a remote
+    ref: str  # fully qualified ref to branch from
 
     @property
     def display(self) -> str:
@@ -102,7 +102,7 @@ def detect_base(repo: Path, *, allow_network: bool = True) -> Base:
 
     head = run(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout.strip()
     if head.startswith("origin/"):
-        name = head[len("origin/"):]
+        name = head[len("origin/") :]
         return Base(branch=name, remote="origin", ref=f"refs/remotes/origin/{name}")
 
     if allow_network:
@@ -141,7 +141,11 @@ class FetchResult:
 def classify_fetch_error(stderr: str) -> str:
     text = stderr.strip()
     lowered = text.lower()
-    if "could not resolve host" in lowered or "connection timed out" in lowered or "network is unreachable" in lowered:
+    if (
+        "could not resolve host" in lowered
+        or "connection timed out" in lowered
+        or "network is unreachable" in lowered
+    ):
         return "network unreachable"
     if "permission denied (publickey)" in lowered or "authentication failed" in lowered:
         return "authentication failed"
@@ -155,8 +159,14 @@ def classify_fetch_error(stderr: str) -> str:
 def fetch(repo: Path, branch: str) -> FetchResult:
     try:
         result = run(
-            repo, "fetch", "--quiet", "--no-tags", "origin", branch,
-            timeout=FETCH_TIMEOUT_SECONDS, network=True,
+            repo,
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "origin",
+            branch,
+            timeout=FETCH_TIMEOUT_SECONDS,
+            network=True,
         )
     except subprocess.TimeoutExpired:
         return FetchResult(repo, False, f"timed out after {FETCH_TIMEOUT_SECONDS}s")
@@ -190,7 +200,7 @@ def fetch_all(
 class WorktreeInfo:
     path: str
     head: str | None = None
-    branch: str | None = None       # short name, e.g. "main"
+    branch: str | None = None  # short name, e.g. "main"
     bare: bool = False
     detached: bool = False
     prunable: bool = False
@@ -202,14 +212,14 @@ def parse_worktree_list(text: str) -> list[WorktreeInfo]:
     current: WorktreeInfo | None = None
     for line in text.splitlines():
         if line.startswith("worktree "):
-            current = WorktreeInfo(path=line[len("worktree "):])
+            current = WorktreeInfo(path=line[len("worktree ") :])
             entries.append(current)
         elif current is None:
             continue
         elif line.startswith("HEAD "):
-            current.head = line[len("HEAD "):]
+            current.head = line[len("HEAD ") :]
         elif line.startswith("branch "):
-            current.branch = line[len("branch "):].removeprefix("refs/heads/")
+            current.branch = line[len("branch ") :].removeprefix("refs/heads/")
         elif line == "bare":
             current.bare = True
         elif line == "detached":
@@ -248,8 +258,8 @@ class BranchPlan:
     """How to create one worktree, decided in preflight."""
 
     branch: str
-    source: str            # "new" | "origin" | "local"
-    start: str             # commit-ish handed to `git worktree add`
+    source: str  # "new" | "origin" | "local"
+    start: str  # commit-ish handed to `git worktree add`
     branch_created: bool
 
 
@@ -311,7 +321,7 @@ def has_submodules(path: Path) -> bool:
 
 @dataclass
 class State:
-    kind: str       # missing | dirty | never-pushed | unpushed | clean | detached
+    kind: str  # missing | dirty | never-pushed | unpushed | clean | detached
     detail: str
 
     @property

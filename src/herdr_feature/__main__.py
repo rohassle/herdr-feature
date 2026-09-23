@@ -53,7 +53,7 @@ def dispatch(action: str) -> None:
     if action not in handlers:
         raise ui.Abort(f"unknown command {action!r}. Expected one of: {', '.join(ACTIONS)}")
     if action == "install-cli":
-        install_cli.run()          # needs no configuration
+        install_cli.run()  # needs no configuration
         return
     config = load_config()
     handlers[action](config)

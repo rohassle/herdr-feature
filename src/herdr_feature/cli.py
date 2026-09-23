@@ -158,7 +158,9 @@ def cmd_list(args, config: Config) -> int:
     return 0
 
 
-def _create(args, config: Config, feature: manifest.Feature, features_other: list, requests, *, is_new: bool) -> list[common.Planned]:
+def _create(
+    args, config: Config, feature: manifest.Feature, features_other: list, requests, *, is_new: bool
+) -> list[common.Planned]:
     planned = common.preflight(config, feature, requests, features_other)
     common.show_plan(planned)
     return planned
@@ -183,7 +185,9 @@ def cmd_new(args, config: Config) -> int:
     with mutation_lock():
         if existing is not None and existing.readable and existing.status == manifest.STATUS_CREATING:
             if not args.yes:
-                raise ui.Abort(f"{existing.name} was interrupted while being created; rerun with --yes to clean it up first.")
+                raise ui.Abort(
+                    f"{existing.name} was interrupted while being created; rerun with --yes to clean it up first."
+                )
             common.cleanup_interrupted(existing)
             features = [f for f in features if f is not existing]
         elif existing is not None:
@@ -195,8 +199,15 @@ def cmd_new(args, config: Config) -> int:
         requests = [common.Request(repo, suffixes.get(repo.name.casefold())) for repo in repos]
         planned = _create(args, config, feature, features, requests, is_new=True)
         if not args.yes:
-            payload = {"dry_run": True, "feature": args.name, "root": str(root),
-                       "plan": [{"repo": p.repo.name, "folder": p.folder, "branch": p.branch, "how": p.plan.source} for p in planned]}
+            payload = {
+                "dry_run": True,
+                "feature": args.name,
+                "root": str(root),
+                "plan": [
+                    {"repo": p.repo.name, "folder": p.folder, "branch": p.branch, "how": p.plan.source}
+                    for p in planned
+                ],
+            }
             _emit(args, payload, "dry run only; rerun with --yes to create.")
             return 0
         config.features_directory.mkdir(parents=True, exist_ok=True)
@@ -211,7 +222,12 @@ def cmd_new(args, config: Config) -> int:
         except herdr.HerdrError as error:
             ui.warn(f"feature created but its workspace could not be opened: {error}")
     payload = _feature_dict(feature, {feature.name: workspace_id} if workspace_id else {}, states=False)
-    _emit(args, payload, f"created {feature.name} with {len(planned)} worktree(s) at {root}" + (f"; workspace {workspace_id}" if workspace_id else ""))
+    _emit(
+        args,
+        payload,
+        f"created {feature.name} with {len(planned)} worktree(s) at {root}"
+        + (f"; workspace {workspace_id}" if workspace_id else ""),
+    )
     return 0
 
 
@@ -241,8 +257,14 @@ def cmd_add(args, config: Config) -> int:
     with mutation_lock():
         planned = _create(args, config, feature, others, requests, is_new=False)
         if not args.yes:
-            payload = {"dry_run": True, "feature": feature.name,
-                       "plan": [{"repo": p.repo.name, "folder": p.folder, "branch": p.branch, "how": p.plan.source} for p in planned]}
+            payload = {
+                "dry_run": True,
+                "feature": feature.name,
+                "plan": [
+                    {"repo": p.repo.name, "folder": p.folder, "branch": p.branch, "how": p.plan.source}
+                    for p in planned
+                ],
+            }
             _emit(args, payload, "dry run only; rerun with --yes to add.")
             return 0
         common.execute(feature, planned, is_new=False)
@@ -251,7 +273,11 @@ def cmd_add(args, config: Config) -> int:
         workspace_id = herdr.create_workspace(feature, focus=args.focus)
         feature.save()
         live[feature.name] = workspace_id
-    _emit(args, _feature_dict(feature, live, states=False), f"added {len(planned)} worktree(s) to {feature.name}")
+    _emit(
+        args,
+        _feature_dict(feature, live, states=False),
+        f"added {len(planned)} worktree(s) to {feature.name}",
+    )
     return 0
 
 
@@ -272,7 +298,12 @@ def cmd_open(args, config: Config) -> int:
         if feature.mutable:
             feature.save()
         created = True
-    payload = {"feature": feature.name, "root": str(feature.root), "workspace_id": workspace_id, "created": created}
+    payload = {
+        "feature": feature.name,
+        "root": str(feature.root),
+        "workspace_id": workspace_id,
+        "created": created,
+    }
     _emit(args, payload, f"{feature.name}: workspace {workspace_id}" + (" (created)" if created else ""))
     return 0
 
@@ -287,14 +318,22 @@ def cmd_drop(args, config: Config) -> int:
     chosen = [wt for wt in feature.worktrees if wt.folder in wanted or wt.repo_name in wanted]
     missing = wanted - {wt.folder for wt in chosen} - {wt.repo_name for wt in chosen}
     if missing:
-        raise ui.Abort(f"not in {feature.name}: {', '.join(sorted(missing))}. Folders: {', '.join(sorted(feature.folders()))}")
+        raise ui.Abort(
+            f"not in {feature.name}: {', '.join(sorted(missing))}. Folders: {', '.join(sorted(feature.folders()))}"
+        )
     states = {wt.folder: gitops.worktree_state(feature.path_of(wt)) for wt in chosen}
     careful = [wt for wt in chosen if states[wt.folder].needs_care]
     if careful and not args.force:
         detail = "; ".join(f"{wt.folder}: {states[wt.folder].detail}" for wt in careful)
-        raise ui.Abort(f"refusing to drop worktrees with unsaved work ({detail}); pass --force to drop anyway.")
+        raise ui.Abort(
+            f"refusing to drop worktrees with unsaved work ({detail}); pass --force to drop anyway."
+        )
     if not args.yes:
-        payload = {"dry_run": True, "feature": feature.name, "drop": [{"folder": wt.folder, "state": states[wt.folder].detail} for wt in chosen]}
+        payload = {
+            "dry_run": True,
+            "feature": feature.name,
+            "drop": [{"folder": wt.folder, "state": states[wt.folder].detail} for wt in chosen],
+        }
         _emit(args, payload, "dry run only; rerun with --yes to drop.")
         return 0
     with mutation_lock():
@@ -303,7 +342,11 @@ def cmd_drop(args, config: Config) -> int:
             feature.worktrees.remove(wt)
             feature.save()
             ui.ok(f"dropped {wt.folder}; branch {wt.branch} kept")
-    _emit(args, _feature_dict(feature, {}, states=False), f"dropped {len(chosen)} worktree(s) from {feature.name}")
+    _emit(
+        args,
+        _feature_dict(feature, {}, states=False),
+        f"dropped {len(chosen)} worktree(s) from {feature.name}",
+    )
     return 0
 
 
@@ -317,12 +360,26 @@ def cmd_remove(args, config: Config) -> int:
     careful = [wt for wt in feature.worktrees if states[wt.folder].needs_care]
     if careful and not args.force:
         detail = "; ".join(f"{wt.folder}: {states[wt.folder].detail}" for wt in careful)
-        raise ui.Abort(f"refusing to remove a feature with unsaved work ({detail}); pass --force to remove anyway.")
+        raise ui.Abort(
+            f"refusing to remove a feature with unsaved work ({detail}); pass --force to remove anyway."
+        )
     live = common.live_map(features)
     workspace_id = live.get(feature.name)
     if not args.yes:
-        payload = {"dry_run": True, "feature": feature.name, "workspace_id": workspace_id,
-                   "worktrees": [{"folder": wt.folder, "branch": wt.branch, "state": states[wt.folder].detail, "branch_created": wt.branch_created} for wt in feature.worktrees]}
+        payload = {
+            "dry_run": True,
+            "feature": feature.name,
+            "workspace_id": workspace_id,
+            "worktrees": [
+                {
+                    "folder": wt.folder,
+                    "branch": wt.branch,
+                    "state": states[wt.folder].detail,
+                    "branch_created": wt.branch_created,
+                }
+                for wt in feature.worktrees
+            ],
+        }
         _emit(args, payload, "dry run only; rerun with --yes to remove.")
         return 0
     entries = list(feature.worktrees)
@@ -331,7 +388,9 @@ def cmd_remove(args, config: Config) -> int:
         if workspace_id:
             busy = herdr.busy_panes(workspace_id)
             if busy and not args.force:
-                raise ui.Abort(f"workspace {workspace_id} has {len(busy)} agent(s) working or waiting; pass --force to close it anyway.")
+                raise ui.Abort(
+                    f"workspace {workspace_id} has {len(busy)} agent(s) working or waiting; pass --force to close it anyway."
+                )
             herdr.close_workspace(workspace_id)
             ui.ok(f"closed workspace {workspace_id}")
         for wt in entries:
@@ -339,6 +398,7 @@ def cmd_remove(args, config: Config) -> int:
             feature.worktrees.remove(wt)
             ui.ok(f"removed {wt.folder}")
         import shutil
+
         shutil.rmtree(feature.root, ignore_errors=True)
         if args.delete_branches:
             claims = manifest.branch_claims([f for f in features if f is not feature])
@@ -347,10 +407,17 @@ def cmd_remove(args, config: Config) -> int:
                     if gitops.branch_delete(Path(wt.repo_path), wt.branch) is None:
                         deleted_branches.append({"repo": wt.repo_name, "branch": wt.branch})
                         ui.ok(f"deleted branch {wt.branch} in {wt.repo_name}")
-    payload = {"feature": feature.name, "removed": True, "closed_workspace": workspace_id,
-               "deleted_branches": deleted_branches,
-               "kept_branches": [{"repo": wt.repo_name, "branch": wt.branch} for wt in entries
-                                 if not any(d["repo"] == wt.repo_name and d["branch"] == wt.branch for d in deleted_branches)]}
+    payload = {
+        "feature": feature.name,
+        "removed": True,
+        "closed_workspace": workspace_id,
+        "deleted_branches": deleted_branches,
+        "kept_branches": [
+            {"repo": wt.repo_name, "branch": wt.branch}
+            for wt in entries
+            if not any(d["repo"] == wt.repo_name and d["branch"] == wt.branch for d in deleted_branches)
+        ],
+    }
     _emit(args, payload, f"removed {feature.name}")
     return 0
 
@@ -382,7 +449,10 @@ def cmd_uninstall_cli(args, config=None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="herdr-feature", description="Manage cross-repository feature workspaces in Herdr (non-interactive).")
+    parser = argparse.ArgumentParser(
+        prog="herdr-feature",
+        description="Manage cross-repository feature workspaces in Herdr (non-interactive).",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def common_flags(p, *, mutating: bool):
@@ -399,10 +469,18 @@ def build_parser() -> argparse.ArgumentParser:
     common_flags(p, mutating=True)
     p.add_argument("--name", required=True)
     p.add_argument("--repo", action="append", default=[], help="repository name or path (repeatable)")
-    p.add_argument("--suffix", action="append", default=[], metavar="REPO=SUFFIX", help="use <branch>-SUFFIX and folder REPO@SUFFIX for that repo")
+    p.add_argument(
+        "--suffix",
+        action="append",
+        default=[],
+        metavar="REPO=SUFFIX",
+        help="use <branch>-SUFFIX and folder REPO@SUFFIX for that repo",
+    )
     p.add_argument("--on-fetch-failure", choices=("abort", "continue"), default="abort")
     p.add_argument("--no-workspace", action="store_true", help="create files only, no Herdr workspace")
-    p.add_argument("--focus", action="store_true", help="focus the new workspace (default: leave focus alone)")
+    p.add_argument(
+        "--focus", action="store_true", help="focus the new workspace (default: leave focus alone)"
+    )
     p.set_defaults(func=cmd_new)
 
     p = sub.add_parser("add", help="add worktrees to a feature")
@@ -424,7 +502,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("drop", help="remove worktrees from a feature (branches kept)")
     common_flags(p, mutating=True)
     p.add_argument("--feature")
-    p.add_argument("--worktree", action="append", default=[], required=True, help="folder name, e.g. repo or repo@suffix (repeatable)")
+    p.add_argument(
+        "--worktree",
+        action="append",
+        default=[],
+        required=True,
+        help="folder name, e.g. repo or repo@suffix (repeatable)",
+    )
     p.add_argument("--force", action="store_true", help="drop even with uncommitted or unpushed work")
     p.set_defaults(func=cmd_drop)
 
@@ -432,12 +516,18 @@ def build_parser() -> argparse.ArgumentParser:
     common_flags(p, mutating=True)
     p.add_argument("--feature")
     p.add_argument("--force", action="store_true", help="remove even with unsaved work or busy agents")
-    p.add_argument("--delete-branches", action="store_true", help="also delete local branches this plugin created")
+    p.add_argument(
+        "--delete-branches", action="store_true", help="also delete local branches this plugin created"
+    )
     p.set_defaults(func=cmd_remove)
 
-    p = sub.add_parser("install-cli", help="symlink this command into ~/.local/bin and install the agent skill")
+    p = sub.add_parser(
+        "install-cli", help="symlink this command into ~/.local/bin and install the agent skill"
+    )
     common_flags(p, mutating=False)
-    p.add_argument("--no-skill", action="store_true", help="do not link the Claude Code skill into ~/.claude/skills")
+    p.add_argument(
+        "--no-skill", action="store_true", help="do not link the Claude Code skill into ~/.claude/skills"
+    )
     p.add_argument("--replace", action="store_true", help="replace an existing file at the link location")
     p.set_defaults(func=cmd_install_cli, needs_config=False)
 
@@ -462,5 +552,10 @@ def main(argv: list[str]) -> int:
         return 1
 
 
-if __name__ == "__main__":
+def entrypoint() -> None:
+    """Console-script entry (`uv run herdr-feature`, or a pip install)."""
     sys.exit(main(sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    entrypoint()

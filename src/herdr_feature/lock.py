@@ -53,7 +53,7 @@ def mutation_lock():
             raise Abort(
                 "Another feature command is still running. Wait for it to finish, or delete\n"
                 f"{path} if you are sure it is stale."
-            )
+            ) from None
         with os.fdopen(fd, "w") as handle:
             handle.write(str(os.getpid()))
         try:

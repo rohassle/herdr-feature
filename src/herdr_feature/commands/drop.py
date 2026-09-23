@@ -24,8 +24,14 @@ def run(config: Config) -> None:
         for worktree in feature.worktrees:
             state = gitops.worktree_state(feature.path_of(worktree))
             states[worktree.folder] = state
-            rows.append(ui.encode_row(worktree.folder, f"{worktree.folder:<40}", f"{worktree.branch:<40}", state.detail))
-        keys = ui.pick(rows, prompt_text="drop> ", header="Tab: mark   Enter: confirm   Esc: cancel", multi=True)
+            rows.append(
+                ui.encode_row(
+                    worktree.folder, f"{worktree.folder:<40}", f"{worktree.branch:<40}", state.detail
+                )
+            )
+        keys = ui.pick(
+            rows, prompt_text="drop> ", header="Tab: mark   Enter: confirm   Esc: cancel", multi=True
+        )
         chosen = [wt for wt in feature.worktrees if wt.folder in set(keys)]
         if not chosen:
             raise ui.Cancelled()
@@ -53,7 +59,9 @@ def run(config: Config) -> None:
                 ui.step(f"{worktree.folder:<40} {states[worktree.folder].detail}")
             if not ui.confirm_typed(feature.name, "Uncommitted or unpushed work will be lost."):
                 raise ui.Cancelled()
-        elif not ui.confirm(f"Drop {len(chosen)} worktree(s) from {feature.name!r}? Branches are kept.", default=True):
+        elif not ui.confirm(
+            f"Drop {len(chosen)} worktree(s) from {feature.name!r}? Branches are kept.", default=True
+        ):
             raise ui.Cancelled()
 
         ui.heading("Dropping")

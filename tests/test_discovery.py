@@ -25,7 +25,9 @@ class Scanner(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_scan_rules(self):
-        config = Config(path=Path("x"), repo_directories=[self.work], repos=[self.work / "worktrees" / "ignored"])
+        config = Config(
+            path=Path("x"), repo_directories=[self.work], repos=[self.work / "worktrees" / "ignored"]
+        )
         found = discovery.scan(config)
         self.assertEqual([r.name for r in found], ["Alpha", "beta", "ignored"])
         self.assertNotIn("beta-linked", [r.name for r in found])

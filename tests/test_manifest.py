@@ -9,9 +9,16 @@ from herdr_feature import manifest
 
 def worktree(**overrides):
     base = dict(
-        repo_name="alpha", repo_path="/repos/alpha", folder="alpha", suffix=None,
-        branch="feat/x", branch_created=True, branch_source="new",
-        base_ref="refs/remotes/origin/main", base_commit="abc", remote="origin",
+        repo_name="alpha",
+        repo_path="/repos/alpha",
+        folder="alpha",
+        suffix=None,
+        branch="feat/x",
+        branch_created=True,
+        branch_source="new",
+        base_ref="refs/remotes/origin/main",
+        base_commit="abc",
+        remote="origin",
     )
     base.update(overrides)
     return manifest.Worktree(**base)
@@ -28,7 +35,15 @@ class ManifestRoundTrip(unittest.TestCase):
     def test_save_and_load(self):
         feature = manifest.Feature(name="x", root=self.features / "x", branch_prefix="feat/")
         feature.worktrees.append(worktree())
-        feature.worktrees.append(worktree(folder="alpha@api", suffix="api", branch="feat/x-api", branch_created=False, branch_source="local"))
+        feature.worktrees.append(
+            worktree(
+                folder="alpha@api",
+                suffix="api",
+                branch="feat/x-api",
+                branch_created=False,
+                branch_source="local",
+            )
+        )
         feature.remember_workspace("wQ", "x")
         feature.save()
         loaded = manifest.load(feature.root)
@@ -75,6 +90,8 @@ class ManifestRoundTrip(unittest.TestCase):
     def test_malformed_entries_raise(self):
         root = self.features / "m"
         root.mkdir()
-        (root / manifest.MANIFEST_NAME).write_text(json.dumps({"version": 1, "feature": "m", "worktrees": [{"folder": "x"}]}))
+        (root / manifest.MANIFEST_NAME).write_text(
+            json.dumps({"version": 1, "feature": "m", "worktrees": [{"folder": "x"}]})
+        )
         with self.assertRaises(manifest.ManifestError):
             manifest.load(root)

@@ -37,15 +37,21 @@ class ConfigParsing(unittest.TestCase):
     def test_features_inside_repo_is_fatal(self):
         with self.assertRaises(Abort):
             cfg.parse_config(
-                {"repo_directories": [str(self.base / "work")],
-                 "features_directory": str(self.base / "work" / "alpha" / "features")},
+                {
+                    "repo_directories": [str(self.base / "work")],
+                    "features_directory": str(self.base / "work" / "alpha" / "features"),
+                },
                 self.path,
             )
 
     def test_bad_prefix_is_fatal_and_odd_prefix_warns(self):
         with self.assertRaises(Abort):
-            cfg.parse_config({"repo_directories": [str(self.base / "work")], "branch_prefix": "a//"}, self.path)
-        parsed = cfg.parse_config({"repo_directories": [str(self.base / "work")], "branch_prefix": "feat"}, self.path)
+            cfg.parse_config(
+                {"repo_directories": [str(self.base / "work")], "branch_prefix": "a//"}, self.path
+            )
+        parsed = cfg.parse_config(
+            {"repo_directories": [str(self.base / "work")], "branch_prefix": "feat"}, self.path
+        )
         self.assertTrue(any("branch_prefix" in w for w in parsed.warnings))
 
     def test_no_repos_is_fatal(self):

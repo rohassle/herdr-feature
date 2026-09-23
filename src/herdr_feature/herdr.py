@@ -65,7 +65,9 @@ def context() -> Context:
     except json.JSONDecodeError:
         data = {}
     return Context(
-        workspace_id=os.environ.get("FEATURE_WORKSPACE_ID") or data.get("workspace_id") or os.environ.get("HERDR_WORKSPACE_ID"),
+        workspace_id=os.environ.get("FEATURE_WORKSPACE_ID")
+        or data.get("workspace_id")
+        or os.environ.get("HERDR_WORKSPACE_ID"),
         workspace_cwd=data.get("workspace_cwd"),
         focused_pane_cwd=data.get("focused_pane_cwd"),
         workspace_label=data.get("workspace_label"),
@@ -180,9 +182,12 @@ def current_feature(features: list[Feature], ctx: Context) -> Feature | None:
 
 def create_workspace(feature: Feature, *, focus: bool = True) -> str:
     result = call(
-        "workspace", "create",
-        "--cwd", str(feature.root),
-        "--label", feature.name,
+        "workspace",
+        "create",
+        "--cwd",
+        str(feature.root),
+        "--label",
+        feature.name,
         "--focus" if focus else "--no-focus",
     )
     workspace_id = result["workspace"]["workspace_id"]
@@ -196,7 +201,7 @@ def focus_workspace(workspace_id: str) -> None:
     try_call("workspace", "focus", workspace_id)
     try:
         subprocess.Popen(
-            ["sh", "-c", f'sleep 0.4; exec "$0" workspace focus "$1"', binary(), workspace_id],
+            ["sh", "-c", 'sleep 0.4; exec "$0" workspace focus "$1"', binary(), workspace_id],
             start_new_session=True,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

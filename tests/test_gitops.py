@@ -33,9 +33,17 @@ class Parsers(unittest.TestCase):
         self.assertTrue(entries[2].prunable)
 
     def test_classify_fetch_error(self):
-        self.assertEqual(gitops.classify_fetch_error("ssh: Could not resolve hostname x"), "network unreachable")
-        self.assertEqual(gitops.classify_fetch_error("git@github.com: Permission denied (publickey)."), "authentication failed")
-        self.assertEqual(gitops.classify_fetch_error("fatal: couldn't find remote ref main"), "default branch not on remote")
+        self.assertEqual(
+            gitops.classify_fetch_error("ssh: Could not resolve hostname x"), "network unreachable"
+        )
+        self.assertEqual(
+            gitops.classify_fetch_error("git@github.com: Permission denied (publickey)."),
+            "authentication failed",
+        )
+        self.assertEqual(
+            gitops.classify_fetch_error("fatal: couldn't find remote ref main"),
+            "default branch not on remote",
+        )
         self.assertEqual(gitops.classify_fetch_error("line1\nsomething odd"), "something odd")
 
 
@@ -97,6 +105,7 @@ class RealGit(unittest.TestCase):
 
     def test_remove_after_manual_deletion_prunes(self):
         import shutil
+
         base = gitops.detect_base(self.repo)
         path = self.target / "alpha"
         gitops.worktree_add(self.repo, path, gitops.plan_branch(self.repo, "feat/m", base))

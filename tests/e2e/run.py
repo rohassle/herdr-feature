@@ -84,7 +84,18 @@ class Fixture:
         repo = self.repos / name
         repo.mkdir(parents=True)
         sh("git", "init", "-q", "-b", branch, str(repo))
-        git(repo, "-c", "user.email=e2e@test", "-c", "user.name=e2e", "commit", "-q", "--allow-empty", "-m", "init")
+        git(
+            repo,
+            "-c",
+            "user.email=e2e@test",
+            "-c",
+            "user.name=e2e",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        )
         if remote:
             origin = self.origins / f"{name}.git"
             sh("git", "init", "-q", "--bare", "-b", branch, str(origin))
@@ -93,7 +104,9 @@ class Fixture:
             git(repo, "remote", "set-head", "origin", "--auto")
         return repo
 
-    def run(self, command: str, *, fzf: list[str], inputs: list[str], expect_rc: int = 0) -> subprocess.CompletedProcess:
+    def run(
+        self, command: str, *, fzf: list[str], inputs: list[str], expect_rc: int = 0
+    ) -> subprocess.CompletedProcess:
         self.queue.write_text("".join(line + "\n" for line in fzf))
         env = {
             **os.environ,
@@ -111,7 +124,10 @@ class Fixture:
         env.pop("HERDR_PLUGIN_CONTEXT_JSON", None)
         result = subprocess.run(
             [sys.executable, "-m", "herdr_feature", command],
-            cwd=ROOT, env=env, capture_output=True, text=True,
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
         )
         print(f"\n$ feature {command}  (rc={result.returncode})")
         for line in (result.stdout + result.stderr).splitlines():
@@ -128,9 +144,22 @@ class Fixture:
             "HERDR_PLUGIN_STATE_DIR": str(self.base / "state"),
             "HERDR_BIN_PATH": HERDR,
         }
-        for key in ("FEATURE_WORKSPACE_ID", "FEATURE_INVOKER_CONTEXT", "HERDR_PLUGIN_CONTEXT_JSON", "HERDR_WORKSPACE_ID", "HERDR_FEATURE_INPUTS", "HERDR_FEATURE_FZF"):
+        for key in (
+            "FEATURE_WORKSPACE_ID",
+            "FEATURE_INVOKER_CONTEXT",
+            "HERDR_PLUGIN_CONTEXT_JSON",
+            "HERDR_WORKSPACE_ID",
+            "HERDR_FEATURE_INPUTS",
+            "HERDR_FEATURE_FZF",
+        ):
             env.pop(key, None)
-        result = subprocess.run([sys.executable, "-m", "herdr_feature", "cli", *args], cwd=ROOT, env=env, capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-m", "herdr_feature", "cli", *args],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
         print(f"\n$ herdr-feature {' '.join(args)}  (rc={result.returncode})")
         for line in (result.stdout + result.stderr).splitlines():
             print(f"    | {line}")
@@ -168,15 +197,27 @@ def scenario_new(f: Fixture) -> None:
     check(folders == ["alpha", "beta", "delta-noremote"], f"worktrees recorded: {folders}")
     alpha = f.features / "zz-test-one" / "alpha"
     check(git(alpha, "symbolic-ref", "--short", "HEAD") == "feat/zz-test-one", "alpha on feat/zz-test-one")
-    check(git(alpha, "rev-parse", "--abbrev-ref", "@{u}", check_rc=False) == "", "new branch has no upstream (--no-track)")
-    beta = f.features / "zz-test-one" / "beta"
-    check([wt for wt in m["worktrees"] if wt["folder"] == "beta"][0]["base_ref"] == "refs/remotes/origin/master", "beta based on origin/master")
-    check([wt for wt in m["worktrees"] if wt["folder"] == "delta-noremote"][0]["remote"] is None, "no-remote repo recorded with remote=null")
+    check(
+        git(alpha, "rev-parse", "--abbrev-ref", "@{u}", check_rc=False) == "",
+        "new branch has no upstream (--no-track)",
+    )
+    check(
+        [wt for wt in m["worktrees"] if wt["folder"] == "beta"][0]["base_ref"]
+        == "refs/remotes/origin/master",
+        "beta based on origin/master",
+    )
+    check(
+        [wt for wt in m["worktrees"] if wt["folder"] == "delta-noremote"][0]["remote"] is None,
+        "no-remote repo recorded with remote=null",
+    )
     ws = f.track("zz-test-one")
     check(ws is not None, f"workspace created: {ws}")
     check(m["workspace"]["id"] == ws, "manifest hint equals live workspace id")
     panes = herdr("pane", "list", "--workspace", ws)["panes"] if ws else []
-    check(bool(panes) and Path(panes[0]["cwd"]).resolve() == (f.features / "zz-test-one").resolve(), "root pane cwd is the feature root")
+    check(
+        bool(panes) and Path(panes[0]["cwd"]).resolve() == (f.features / "zz-test-one").resolve(),
+        "root pane cwd is the feature root",
+    )
     tabs = herdr("tab", "list", "--workspace", ws)["tabs"] if ws else []
     check(len(tabs) == 1, f"exactly one tab ({len(tabs)})")
 
@@ -186,10 +227,16 @@ def scenario_add(f: Fixture) -> None:
     f.run("add", fzf=["zz-test-one", "alpha,gamma-nohead"], inputs=["api", "y"])
     m = f.manifest("zz-test-one")
     folders = sorted(wt["folder"] for wt in m["worktrees"])
-    check(folders == ["alpha", "alpha@api", "beta", "delta-noremote", "gamma-nohead"], f"folders now {folders}")
+    check(
+        folders == ["alpha", "alpha@api", "beta", "delta-noremote", "gamma-nohead"], f"folders now {folders}"
+    )
     api = f.features / "zz-test-one" / "alpha@api"
     check(git(api, "symbolic-ref", "--short", "HEAD") == "feat/zz-test-one-api", "suffix branch name")
-    check(git(f.repos / "gamma-nohead", "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check_rc=False) == "origin/main", "origin/HEAD was repaired on gamma")
+    check(
+        git(f.repos / "gamma-nohead", "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check_rc=False)
+        == "origin/main",
+        "origin/HEAD was repaired on gamma",
+    )
 
 
 def scenario_remote_only(f: Fixture) -> None:
@@ -201,9 +248,14 @@ def scenario_remote_only(f: Fixture) -> None:
     f.run("new", fzf=["beta"], inputs=["zz-test-two", "y"])
     m = f.manifest("zz-test-two")
     wt = m["worktrees"][0]
-    check(wt["branch_source"] == "origin" and wt["branch_created"] is True, "branch_source=origin, created=true")
+    check(
+        wt["branch_source"] == "origin" and wt["branch_created"] is True, "branch_source=origin, created=true"
+    )
     path = f.features / "zz-test-two" / "beta"
-    check(git(path, "rev-parse", "--abbrev-ref", "@{u}", check_rc=False) == "origin/feat/zz-test-two", "tracking upstream set")
+    check(
+        git(path, "rev-parse", "--abbrev-ref", "@{u}", check_rc=False) == "origin/feat/zz-test-two",
+        "tracking upstream set",
+    )
     f.track("zz-test-two")
 
 
@@ -227,7 +279,10 @@ def scenario_fetch_failure(f: Fixture) -> None:
     f.run("new", fzf=["beta"], inputs=["zz-test-four", "a"], expect_rc=1)
     check(not (f.features / "zz-test-four").exists(), "abort left no feature folder")
     check(workspace_by_label("zz-test-four") is None, "abort created no workspace")
-    check(git(beta, "rev-parse", "--verify", "--quiet", "feat/zz-test-four", check_rc=False) == "", "abort created no branch")
+    check(
+        git(beta, "rev-parse", "--verify", "--quiet", "feat/zz-test-four", check_rc=False) == "",
+        "abort created no branch",
+    )
     f.run("new", fzf=["beta"], inputs=["zz-test-four", "c", "y"])
     check(f.manifest("zz-test-four") is not None, "continue created the feature from local refs")
     git(beta, "remote", "set-url", "origin", good_url)
@@ -248,7 +303,11 @@ def scenario_drop(f: Fixture) -> None:
     m = f.manifest("zz-test-one")
     check("alpha@api" not in [wt["folder"] for wt in m["worktrees"]], "manifest no longer lists alpha@api")
     check(not api.exists(), "folder removed")
-    check(git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-one-api", check_rc=False) != "", "branch kept after drop")
+    check(
+        git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-one-api", check_rc=False)
+        != "",
+        "branch kept after drop",
+    )
 
 
 def scenario_close_and_open(f: Fixture) -> None:
@@ -274,8 +333,14 @@ def scenario_remove(f: Fixture) -> None:
     f.run("remove", fzf=["zz-test-one"], inputs=["zz-test-one", "y"])
     check(not (f.features / "zz-test-one").exists(), "feature folder gone")
     check(workspace_by_label("zz-test-one") is None, "workspace closed by remove")
-    check(git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-one", check_rc=False) == "", "created branch deleted")
-    check("zz-test-one" not in git(f.repos / "alpha", "worktree", "list", "--porcelain"), "alpha no longer registers a zz-test-one worktree")
+    check(
+        git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-one", check_rc=False) == "",
+        "created branch deleted",
+    )
+    check(
+        "zz-test-one" not in git(f.repos / "alpha", "worktree", "list", "--porcelain"),
+        "alpha no longer registers a zz-test-one worktree",
+    )
 
 
 def scenario_rollback(f: Fixture) -> None:
@@ -289,8 +354,14 @@ def scenario_rollback(f: Fixture) -> None:
     f.run("new", fzf=["alpha,beta"], inputs=["zz-test-five", "y"], expect_rc=1)
     git(beta, "config", "--unset", "core.hooksPath")
     check(not (f.features / "zz-test-five").exists(), "feature folder rolled back")
-    check(git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-five", check_rc=False) == "", "alpha branch rolled back")
-    check("zz-test-five" not in git(f.repos / "alpha", "worktree", "list", "--porcelain"), "alpha worktree rolled back")
+    check(
+        git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-five", check_rc=False) == "",
+        "alpha branch rolled back",
+    )
+    check(
+        "zz-test-five" not in git(f.repos / "alpha", "worktree", "list", "--porcelain"),
+        "alpha worktree rolled back",
+    )
     check(workspace_by_label("zz-test-five") is None, "no workspace created")
 
 
@@ -298,13 +369,26 @@ def scenario_interrupted(f: Fixture) -> None:
     print("\n=== K. a manifest left in 'creating' is offered for cleanup on retry")
     root = f.features / "zz-test-six"
     root.mkdir(parents=True)
-    (root / ".feature.json").write_text(json.dumps({
-        "version": 1, "feature": "zz-test-six", "status": "creating",
-        "created_at": "", "updated_at": "", "branch_prefix": "feat/", "workspace": None, "worktrees": [],
-    }))
+    (root / ".feature.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "feature": "zz-test-six",
+                "status": "creating",
+                "created_at": "",
+                "updated_at": "",
+                "branch_prefix": "feat/",
+                "workspace": None,
+                "worktrees": [],
+            }
+        )
+    )
     f.run("new", fzf=["alpha"], inputs=["zz-test-six", "y", "y"])
     m = f.manifest("zz-test-six")
-    check(m is not None and m["status"] == "ready" and len(m["worktrees"]) == 1, "retry cleaned up and created the feature")
+    check(
+        m is not None and m["status"] == "ready" and len(m["worktrees"]) == 1,
+        "retry cleaned up and created the feature",
+    )
     f.track("zz-test-six")
 
 
@@ -312,23 +396,46 @@ def scenario_cli(f: Fixture) -> None:
     print("\n=== M. CLI: dry run, then create with --yes --json")
     f.cli("new", "--name", "zz-test-cli", "--repo", "alpha", "--repo", "delta-noremote", "--json")
     check(not (f.features / "zz-test-cli").exists(), "dry run created nothing")
-    _, payload = f.cli("new", "--name", "zz-test-cli", "--repo", "alpha", "--repo", "delta-noremote", "--yes", "--json")
+    _, payload = f.cli(
+        "new", "--name", "zz-test-cli", "--repo", "alpha", "--repo", "delta-noremote", "--yes", "--json"
+    )
     check(payload is not None and payload.get("workspace_id"), "json result carries workspace_id")
-    check(payload is not None and sorted(wt["folder"] for wt in payload["worktrees"]) == ["alpha", "delta-noremote"], "json lists both worktrees")
+    check(
+        payload is not None
+        and sorted(wt["folder"] for wt in payload["worktrees"]) == ["alpha", "delta-noremote"],
+        "json lists both worktrees",
+    )
     ws = f.track("zz-test-cli")
     check(ws is not None and payload["workspace_id"] == ws, "workspace really exists")
     focused = [w for w in herdr("workspace", "list")["workspaces"] if w["focused"]]
     check(not focused or focused[0]["label"] != "zz-test-cli", "new did not steal focus")
     _, listing = f.cli("list", "--json")
     mine = [item for item in (listing or []) if item["feature"] == "zz-test-cli"]
-    check(bool(mine) and mine[0]["status"] == "open" and mine[0]["workspace_id"] == ws, "list reports it open with the right workspace")
+    check(
+        bool(mine) and mine[0]["status"] == "open" and mine[0]["workspace_id"] == ws,
+        "list reports it open with the right workspace",
+    )
 
     print("\n=== N. CLI: add needs --suffix for a repeated repo; unknown repo is an error")
     f.cli("add", "--feature", "zz-test-cli", "--repo", "alpha", "--yes", expect_rc=1)
     f.cli("add", "--feature", "zz-test-cli", "--repo", "nope", "--yes", expect_rc=1)
-    f.cli("add", "--feature", "zz-test-cli", "--repo", "alpha", "--suffix", "alpha=api", "--repo", "beta", "--yes")
+    f.cli(
+        "add",
+        "--feature",
+        "zz-test-cli",
+        "--repo",
+        "alpha",
+        "--suffix",
+        "alpha=api",
+        "--repo",
+        "beta",
+        "--yes",
+    )
     m = f.manifest("zz-test-cli")
-    check(sorted(wt["folder"] for wt in m["worktrees"]) == ["alpha", "alpha@api", "beta", "delta-noremote"], "add created alpha@api and beta")
+    check(
+        sorted(wt["folder"] for wt in m["worktrees"]) == ["alpha", "alpha@api", "beta", "delta-noremote"],
+        "add created alpha@api and beta",
+    )
 
     print("\n=== O. CLI: drop refuses dirty worktree without --force")
     (f.features / "zz-test-cli" / "beta" / "wip.txt").write_text("x")
@@ -351,18 +458,36 @@ def scenario_cli(f: Fixture) -> None:
     git(beta, "remote", "set-url", "origin", str(f.base / "missing.git"))
     f.cli("new", "--name", "zz-test-cli2", "--repo", "beta", "--yes", expect_rc=1)
     check(not (f.features / "zz-test-cli2").exists(), "abort left nothing")
-    f.cli("new", "--name", "zz-test-cli2", "--repo", "beta", "--yes", "--on-fetch-failure", "continue", "--no-workspace")
+    f.cli(
+        "new",
+        "--name",
+        "zz-test-cli2",
+        "--repo",
+        "beta",
+        "--yes",
+        "--on-fetch-failure",
+        "continue",
+        "--no-workspace",
+    )
     check(f.manifest("zz-test-cli2") is not None, "continue created the feature")
     check(workspace_by_label("zz-test-cli2") is None, "--no-workspace made no workspace")
     git(beta, "remote", "set-url", "origin", good_url)
 
     print("\n=== R. CLI: remove with --force --delete-branches")
     f.cli("remove", "--feature", "zz-test-cli", "--yes", expect_rc=1)  # alpha@api etc. never pushed
-    _, payload = f.cli("remove", "--feature", "zz-test-cli", "--yes", "--force", "--delete-branches", "--json")
+    _, payload = f.cli(
+        "remove", "--feature", "zz-test-cli", "--yes", "--force", "--delete-branches", "--json"
+    )
     check(not (f.features / "zz-test-cli").exists(), "feature folder gone")
     check(workspace_by_label("zz-test-cli") is None, "workspace closed")
-    check(git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-cli", check_rc=False) == "", "alpha branch deleted")
-    check(payload is not None and len(payload.get("deleted_branches", [])) == 3, "three branches reported deleted")
+    check(
+        git(f.repos / "alpha", "rev-parse", "--verify", "--quiet", "feat/zz-test-cli", check_rc=False) == "",
+        "alpha branch deleted",
+    )
+    check(
+        payload is not None and len(payload.get("deleted_branches", [])) == 3,
+        "three branches reported deleted",
+    )
     f.cli("remove", "--feature", "zz-test-cli2", "--yes", "--force")
     check(not (f.features / "zz-test-cli2").exists(), "cli2 removed")
 
@@ -377,7 +502,10 @@ def scenario_cleanup_rest(f: Fixture) -> None:
         f.run("remove", fzf=[name], inputs=answers)
         check(not (f.features / name).exists(), f"{name} removed")
         check(workspace_by_label(name) is None, f"{name} workspace closed")
-    check(git(f.repos / "beta", "rev-parse", "--verify", "--quiet", "feat/zz-test-two", check_rc=False) != "", "reused/tracking branch kept when declining deletion")
+    check(
+        git(f.repos / "beta", "rev-parse", "--verify", "--quiet", "feat/zz-test-two", check_rc=False) != "",
+        "reused/tracking branch kept when declining deletion",
+    )
 
 
 def main() -> int:
@@ -388,9 +516,19 @@ def main() -> int:
     print(f"fixture at {f.base}")
     try:
         for scenario in (
-            scenario_new, scenario_add, scenario_remote_only, scenario_checked_out_elsewhere,
-            scenario_fetch_failure, scenario_collision, scenario_drop, scenario_close_and_open,
-            scenario_remove, scenario_rollback, scenario_interrupted, scenario_cli, scenario_cleanup_rest,
+            scenario_new,
+            scenario_add,
+            scenario_remote_only,
+            scenario_checked_out_elsewhere,
+            scenario_fetch_failure,
+            scenario_collision,
+            scenario_drop,
+            scenario_close_and_open,
+            scenario_remove,
+            scenario_rollback,
+            scenario_interrupted,
+            scenario_cli,
+            scenario_cleanup_rest,
         ):
             try:
                 scenario(f)
@@ -399,7 +537,9 @@ def main() -> int:
                 failed += 1
                 print(f"  FAIL {scenario.__name__} raised: {error!r}")
     finally:
-        leftovers = [ws for ws in herdr("workspace", "list")["workspaces"] if ws["label"].startswith("zz-test-")]
+        leftovers = [
+            ws for ws in herdr("workspace", "list")["workspaces"] if ws["label"].startswith("zz-test-")
+        ]
         for ws in leftovers:
             if ws["workspace_id"] in f.created_workspaces:
                 sh(HERDR, "workspace", "close", ws["workspace_id"], check_rc=False)

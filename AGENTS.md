@@ -1,0 +1,58 @@
+# Working on herdr-feature
+
+A Herdr plugin. One Herdr workspace per feature; a feature is a folder under
+`~/.herdr/features/<name>/` holding one Git worktree per repository plus a `.feature.json`
+manifest. Users drive it from a popup (`prefix+f`), agents and scripts from the
+`herdr-feature` CLI. Both share the same core. Read [ARCHITECTURE.md](ARCHITECTURE.md) before
+changing anything under `src/`, and [CONTEXT.md](CONTEXT.md) for the vocabulary.
+
+## Rules of the road
+
+- **No runtime dependencies.** Herdr runs the plugin with a system Python 3.11+ found by
+  `bin/bootstrap.sh`; end users never install a virtualenv. Standard library plus `fzf` only.
+  `uv` is for development.
+- **Closing a workspace never deletes anything.** Only `remove` and `drop` delete, after
+  showing state and confirming. Do not add "cleanup on close" behaviour.
+- **The manifest is the source of truth**, written atomically. Herdr workspace ids are hints
+  (they change on server restart); liveness comes from pane working directories.
+- **Only branches the plugin created are ever deleted** (`branch_created` in the manifest).
+- Every prompt goes through `ui.py` and carries a `key`, so the CLI can answer it with a
+  flag. If you add a prompt, add the key and the CLI flag together.
+- Decisions with a "why" live in `docs/adr/`. Add an ADR when you reverse or extend one.
+
+## Commands
+
+```sh
+uv sync                                   # dev environment (.venv) with ruff
+uv run python -m unittest discover -s tests -t . -v      # unit tests: pure functions + real git in temp dirs
+uv run tests/e2e/run.py                   # inside Herdr only: creates and removes zz-test-* workspaces
+uv run ruff check . && uv run ruff format --check .
+uv run herdr-feature list                 # the CLI from the checkout, without installing anything
+```
+
+To run the popup from your checkout instead of an installed copy:
+
+```sh
+herdr plugin uninstall feature            # if a GitHub install is active
+herdr plugin link "$PWD"
+herdr-feature install-cli                 # re-point ~/.local/bin/herdr-feature at this checkout
+herdr plugin log list --plugin feature    # stderr of action runs
+```
+
+`herdr plugin link` skips build steps and picks up file edits immediately; no restart needed.
+
+## Layout
+
+```
+herdr-plugin.toml        manifest: 7 actions (all run bin/action.sh), 1 popup pane (bin/bootstrap.sh)
+bin/                     action.sh (opens the popup), bootstrap.sh (finds python, runs the package), herdr-feature (CLI launcher)
+src/herdr_feature/       the package; see ARCHITECTURE.md
+tests/                   unittest modules; tests/e2e/run.py drives the real thing against fixture repos
+skills/herdr-feature/    Claude Code skill installed by install-cli
+docs/adr/                design decisions
+```
+
+## When you change behaviour
+
+Update the README (user-facing), the skill (agent-facing) and the ADRs (why) in the same
+change. Keep examples free of real repository names and personal paths.

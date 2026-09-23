@@ -33,7 +33,7 @@ def skills_dir() -> Path:
 class LinkResult:
     link: Path
     target: Path
-    action: str      # created | replaced | unchanged | skipped
+    action: str  # created | replaced | unchanged | skipped
 
 
 def ensure_link(link: Path, target: Path, *, replace_foreign: bool) -> LinkResult:
@@ -79,8 +79,11 @@ def install(*, with_skill: bool, replace_foreign: bool) -> dict:
     if not cli_target.exists():
         raise ui.Abort(f"{cli_target} does not exist; is the plugin checkout complete?")
     cli = ensure_link(bin_dir() / CLI_NAME, cli_target, replace_foreign=replace_foreign)
-    result = {"cli": {"link": str(cli.link), "target": str(cli.target), "action": cli.action},
-              "bin_on_path": on_path(bin_dir()), "skill": None}
+    result = {
+        "cli": {"link": str(cli.link), "target": str(cli.target), "action": cli.action},
+        "bin_on_path": on_path(bin_dir()),
+        "skill": None,
+    }
     if with_skill:
         skill_target = root / "skills" / SKILL_NAME
         skill = ensure_link(skills_dir() / SKILL_NAME, skill_target, replace_foreign=replace_foreign)
@@ -90,7 +93,7 @@ def install(*, with_skill: bool, replace_foreign: bool) -> dict:
 
 def uninstall(*, with_skill: bool) -> dict:
     removed = []
-    for link in ([bin_dir() / CLI_NAME] + ([skills_dir() / SKILL_NAME] if with_skill else [])):
+    for link in [bin_dir() / CLI_NAME] + ([skills_dir() / SKILL_NAME] if with_skill else []):
         if link.is_symlink() and "herdr-feature" in str(link.resolve()):
             link.unlink()
             removed.append(str(link))
@@ -103,8 +106,10 @@ def report(result: dict) -> None:
     if cli["action"] == "skipped":
         ui.warn(f"{cli['link']} exists and is not a symlink; left untouched. Remove it and rerun to replace.")
     if not result["bin_on_path"]:
-        ui.warn(f"{Path(cli['link']).parent} is not on your PATH. Add it to your shell profile, e.g.\n"
-                f"    export PATH=\"{Path(cli['link']).parent}:$PATH\"")
+        ui.warn(
+            f"{Path(cli['link']).parent} is not on your PATH. Add it to your shell profile, e.g.\n"
+            f'    export PATH="{Path(cli["link"]).parent}:$PATH"'
+        )
     skill = result.get("skill")
     if skill:
         ui.ok(f"{skill['link']} -> {skill['target']} ({skill['action']})")
@@ -116,7 +121,9 @@ def run(config=None) -> None:
     result = install(with_skill=False, replace_foreign=False)
     report(result)
     print(file=ui.OUT)
-    if ui.confirm("Also install the Claude Code skill so agents know these commands?", default=True, key="confirm"):
+    if ui.confirm(
+        "Also install the Claude Code skill so agents know these commands?", default=True, key="confirm"
+    ):
         result = install(with_skill=True, replace_foreign=False)
         ui.ok(f"{result['skill']['link']} ({result['skill']['action']})")
     print(f"\nTry: {CLI_NAME} list", file=ui.OUT)

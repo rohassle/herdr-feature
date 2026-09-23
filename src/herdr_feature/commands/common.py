@@ -11,7 +11,6 @@ from ..config import Config
 from ..discovery import Repo, scan
 from ..manifest import Feature, Worktree
 
-
 # --- lookups ------------------------------------------------------------------
 
 
@@ -178,9 +177,7 @@ def preflight(
         ui.step(f"{request.repo.name}: default branch {bases[key].display}")
 
     # Fetch every remote default branch in parallel, then decide about failures once.
-    fetch_targets = [
-        (Path(key), base.branch) for key, base in bases.items() if base.remote
-    ]
+    fetch_targets = [(Path(key), base.branch) for key, base in bases.items() if base.remote]
     if fetch_targets:
         ui.heading(f"Fetching {len(fetch_targets)} remote{'s' if len(fetch_targets) != 1 else ''}")
 
@@ -333,8 +330,7 @@ def rollback(feature: Feature, created: list[Worktree], *, is_new: bool) -> None
 def cleanup_interrupted(feature: Feature) -> None:
     """A manifest left in `creating` state: undo whatever it lists."""
     ui.warn(
-        f"{feature.name} was interrupted while being created; it lists "
-        f"{len(feature.worktrees)} worktree(s)."
+        f"{feature.name} was interrupted while being created; it lists {len(feature.worktrees)} worktree(s)."
     )
     if not ui.confirm("Remove them and start over?", default=False, key="cleanup-interrupted"):
         raise ui.Cancelled()

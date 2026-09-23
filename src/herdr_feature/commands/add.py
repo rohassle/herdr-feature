@@ -15,7 +15,8 @@ def resolve_target(config: Config, features: list[Feature], *, verb: str) -> tup
     if current is not None and current.mutable:
         return current, live
     feature = common.choose_feature(
-        features, live,
+        features,
+        live,
         prompt_text="feature> ",
         header=f"Choose the feature to {verb}",
         only_mutable=True,

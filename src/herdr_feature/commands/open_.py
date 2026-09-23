@@ -13,14 +13,17 @@ def run(config: Config) -> None:
         raise ui.Abort(f"No features under {config.features_directory}. Create one with 'new'.")
     live = common.live_map(features)
     feature = common.choose_feature(
-        features, live,
+        features,
+        live,
         prompt_text="open> ",
         header="Enter: focus or reopen   Esc: cancel",
     )
     if not feature.readable:
         raise ui.Abort(f"{feature.name} cannot be opened: {feature.error}")
     if feature.status == manifest.STATUS_CREATING:
-        raise ui.Abort(f"{feature.name} was interrupted while being created. Run 'new' with the same name to clean it up, or 'remove'.")
+        raise ui.Abort(
+            f"{feature.name} was interrupted while being created. Run 'new' with the same name to clean it up, or 'remove'."
+        )
 
     workspace_id = live.get(feature.name)
     if workspace_id:

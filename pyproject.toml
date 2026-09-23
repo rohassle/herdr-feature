@@ -1,0 +1,38 @@
+[project]
+name = "herdr-feature"
+version = "0.1.0"
+description = "One Herdr workspace per feature, holding Git worktrees from many repositories."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+# No runtime dependencies on purpose: Herdr runs the plugin with whatever Python 3.11+
+# bin/bootstrap.sh finds, without a virtualenv. Keep it that way.
+dependencies = []
+
+[project.scripts]
+herdr-feature = "herdr_feature.cli:entrypoint"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "herdr_feature"
+module-root = "src"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "E402", "F401", "I"]

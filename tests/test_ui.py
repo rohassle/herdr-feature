@@ -33,10 +33,14 @@ class ScriptedInputs(unittest.TestCase):
     def test_pick_exit_codes(self):
         with mock.patch.object(ui, "find_fzf", return_value="/bin/fzf"):
             for code in (1, 130):
-                with mock.patch.object(ui.subprocess, "run", return_value=mock.Mock(returncode=code, stdout="")):
+                with mock.patch.object(
+                    ui.subprocess, "run", return_value=mock.Mock(returncode=code, stdout="")
+                ):
                     with self.assertRaises(ui.Cancelled):
                         ui.pick(["k\tv"], prompt_text="> ")
-            with mock.patch.object(ui.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="k1\nk2\n")):
+            with mock.patch.object(
+                ui.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="k1\nk2\n")
+            ):
                 self.assertEqual(ui.pick(["k1\ta", "k2\tb"], prompt_text="> ", multi=True), ["k1", "k2"])
             with mock.patch.object(ui.subprocess, "run", return_value=mock.Mock(returncode=2, stdout="")):
                 with self.assertRaises(ui.Abort):

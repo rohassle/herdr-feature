@@ -44,7 +44,7 @@ def run(config: Config) -> None:
         try:
             root.mkdir()
         except FileExistsError:
-            raise ui.Abort(f"{root} appeared while planning; try again.")
+            raise ui.Abort(f"{root} appeared while planning; try again.") from None
         common.execute(feature, planned, is_new=True)
 
     ui.heading("Opening workspace")

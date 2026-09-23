@@ -149,10 +149,7 @@ def parse_config(raw: dict, path: Path) -> Config:
 def load_config(*, interactive: bool = True) -> Config:
     path = config_path()
     if not path.exists():
-        message = (
-            f"No configuration yet at {path}\n\n"
-            "Expected contents:\n\n" + TEMPLATE
-        )
+        message = f"No configuration yet at {path}\n\nExpected contents:\n\n" + TEMPLATE
         if interactive and confirm(f"{message}\nWrite this template there now?", default=True):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(TEMPLATE)

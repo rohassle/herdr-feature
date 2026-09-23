@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 MANIFEST_NAME = ".feature.json"
@@ -20,7 +20,7 @@ class ManifestError(Exception):
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 @dataclass
@@ -31,7 +31,7 @@ class Worktree:
     suffix: str | None
     branch: str
     branch_created: bool
-    branch_source: str          # new | origin | local
+    branch_source: str  # new | origin | local
     base_ref: str | None
     base_commit: str | None
     remote: str | None
@@ -53,7 +53,7 @@ class Feature:
     workspace: dict | None = None
     worktrees: list[Worktree] = field(default_factory=list)
     version: int = VERSION
-    error: str | None = None        # set for manifests that could not be read
+    error: str | None = None  # set for manifests that could not be read
 
     # --- derived -------------------------------------------------------------
 
@@ -185,9 +185,9 @@ def load(root: Path) -> Feature:
     try:
         data = json.loads(path.read_text())
     except FileNotFoundError:
-        raise ManifestError(f"{path} does not exist")
+        raise ManifestError(f"{path} does not exist") from None
     except (OSError, json.JSONDecodeError) as error:
-        raise ManifestError(f"{path}: {error}")
+        raise ManifestError(f"{path}: {error}") from error
     if not isinstance(data, dict):
         raise ManifestError(f"{path}: not a JSON object")
     return from_dict(data, root)
