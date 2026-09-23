@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 FAKE_FZF = ROOT / "tests" / "e2e" / "fake_fzf.sh"
+FAKE_GH = ROOT / "tests" / "e2e" / "fake_gh.sh"
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 
 passed = 0
@@ -95,6 +96,9 @@ class Fixture:
         )
         self.config_both = self.base / "config-both.toml"
         self.config_both.write_text(self.config.read_text() + 'workspaces = "both"\n')
+        self.gh_binary: Path = FAKE_GH
+        self.gh_answers = self.base / "gh-answers.json"
+        self.gh_answers.write_text("{}")
         self.make("alpha", "main", remote=True)
         self.make("beta", "master", remote=True)
         self.make("gamma-nohead", "main", remote=True)
@@ -140,6 +144,8 @@ class Fixture:
             "HERDR_PLUGIN_ROOT": str(ROOT),
             "HERDR_PLUGIN_STATE_DIR": str(self.base / "state"),
             "HERDR_BIN_PATH": HERDR,
+            "HERDR_FEATURE_GH": str(self.gh_binary),
+            "FAKE_GH_ANSWERS": str(self.gh_answers),
         }
         env.pop("FEATURE_WORKSPACE_ID", None)
         env.pop("FEATURE_INVOKER_CONTEXT", None)
@@ -165,6 +171,8 @@ class Fixture:
             "HERDR_PLUGIN_ROOT": str(ROOT),
             "HERDR_PLUGIN_STATE_DIR": str(self.base / "state"),
             "HERDR_BIN_PATH": HERDR,
+            "HERDR_FEATURE_GH": str(self.gh_binary),
+            "FAKE_GH_ANSWERS": str(self.gh_answers),
         }
         for key in (
             "FEATURE_WORKSPACE_ID",
@@ -638,6 +646,120 @@ def scenario_nested(f: Fixture) -> None:
         f.config = plain_config
 
 
+def _pr(number: int, state: str, **extra) -> list[dict]:
+    return [
+        {
+            "number": number,
+            "url": f"https://github.com/example/repo/pull/{number}",
+            "state": state,
+            "isDraft": False,
+            "mergedAt": "2026-09-23T10:00:00Z" if state == "MERGED" else None,
+            "reviewDecision": "",
+            "title": f"PR {number}",
+            **extra,
+        }
+    ]
+
+
+def scenario_board(f: Fixture) -> None:
+    print("\n=== T. progress: refresh reads pull requests through gh; done means all merged")
+    plain_config = f.config
+    f.config = f.config_both
+    try:
+        root = f.features / "zz-test-board"
+        _, payload = f.cli(
+            "new", "--name", "zz-test-board", "--repo", "alpha", "--repo", "beta", "--yes", "--json"
+        )
+        ws = f.track("zz-test-board")
+        for entry in nested_workspaces(root).values():
+            f.track_id(entry["workspace_id"])
+        f.track_fixture_repo_workspaces()
+        check(payload["progress"] == {"merged": 0, "total": 2, "unknown": 2}, "fresh feature is all unknown")
+        check(
+            all(wt["progress"] == "unknown" for wt in payload["worktrees"]),
+            "worktrees unknown before refresh",
+        )
+
+        f.gh_answers.write_text(json.dumps({"feat/zz-test-board": _pr(41, "MERGED")}))
+        # Both worktrees use the same branch name; make alpha's answer differ by path? gh is asked
+        # per worktree cwd but the fake keys by branch, so use the state for both and then narrow.
+        _, listing = f.cli("refresh", "--feature", "zz-test-board", "--json")
+        mine = listing[0]
+        check(mine["progress"]["merged"] == 2 and mine["done"] is True, "all worktrees merged => done")
+        f.gh_answers.write_text(
+            json.dumps({"feat/zz-test-board": _pr(41, "OPEN", reviewDecision="APPROVED")})
+        )
+        _, listing = f.cli("refresh", "--feature", "zz-test-board", "--json")
+        mine = listing[0]
+        check(mine["progress"]["merged"] == 0 and mine["done"] is False, "open PRs => not done")
+        check(
+            all(wt["progress_detail"] == "#41 open · approved" for wt in mine["worktrees"]),
+            f"progress detail shows review state: {[wt['progress_detail'] for wt in mine['worktrees']]}",
+        )
+        m = f.manifest("zz-test-board")
+        check(all(wt["pr"]["state"] == "OPEN" for wt in m["worktrees"]), "lookups cached in the manifest")
+        _, listing = f.cli("list", "--json", "--no-states")
+        board = [item for item in listing if item["feature"] == "zz-test-board"][0]
+        check(
+            board["progress"]["total"] == 2 and board["status"] == "open",
+            "list reports progress without network",
+        )
+
+        print("\n=== T2. refresh without a working gh aborts; the board still opens")
+        f.gh_binary = Path("/nonexistent/gh")
+        f.cli("refresh", "--feature", "zz-test-board", expect_rc=1)
+        f.run("menu", fzf=["|zz-test-board"], inputs=[])  # Enter on the board => focus (already open)
+        focused = [w for w in herdr("workspace", "list")["workspaces"] if w["focused"]]
+        check(bool(focused) and focused[0]["workspace_id"] == ws, "board Enter focused the feature workspace")
+        f.gh_binary = FAKE_GH
+
+        print("\n=== T3. close takes every workspace down and keeps files; Enter brings them back")
+        _, payload = f.cli("close", "--feature", "zz-test-board", "--json")
+        check(payload.get("dry_run") is True, "close is a dry run without --yes")
+        _, payload = f.cli("close", "--feature", "zz-test-board", "--yes", "--json")
+        check(len(payload["closed"]) == 3, f"closed feature + 2 nested workspaces: {payload['closed']}")
+        check(workspace_by_label("zz-test-board") is None and nested_workspaces(root) == {}, "nothing open")
+        check((root / "alpha").is_dir() and f.manifest("zz-test-board") is not None, "files kept")
+        _, listing = f.cli("list", "--json", "--no-states")
+        check(
+            [i for i in listing if i["feature"] == "zz-test-board"][0]["status"] == "closed",
+            "list says closed",
+        )
+        f.run("menu", fzf=["|zz-test-board"], inputs=[])
+        ws = f.track("zz-test-board")
+        nested = nested_workspaces(root)
+        for entry in nested.values():
+            f.track_id(entry["workspace_id"])
+        check(ws is not None and sorted(nested) == ["alpha", "beta"], "board Enter reopened everything")
+        f.run("menu", fzf=["ctrl-w|zz-test-board"], inputs=["y"])
+        check(
+            workspace_by_label("zz-test-board") is None and nested_workspaces(root) == {},
+            "ctrl-w closed them",
+        )
+
+        print("\n=== T4. board: ctrl-n creates, Enter on a done feature offers removal")
+        f.run("menu", fzf=["ctrl-n|", "gamma-nohead"], inputs=["zz-test-board2", "y"])
+        check(f.manifest("zz-test-board2") is not None, "ctrl-n ran new")
+        f.track("zz-test-board2")
+        for entry in nested_workspaces(f.features / "zz-test-board2").values():
+            f.track_id(entry["workspace_id"])
+        f.track_fixture_repo_workspaces()
+        f.gh_answers.write_text(
+            json.dumps({"feat/zz-test-board": _pr(41, "MERGED"), "feat/zz-test-board2": _pr(42, "MERGED")})
+        )
+        f.run("menu", fzf=["ctrl-r|"], inputs=[])
+        m = f.manifest("zz-test-board")
+        check(all(wt["pr"]["state"] == "MERGED" for wt in m["worktrees"]), "ctrl-r refreshed from the board")
+        # Enter on the done feature: confirm removal (y), type-confirm is not needed (clean, but never
+        # pushed => typed name), keep branches (n).
+        f.run("menu", fzf=["|zz-test-board"], inputs=["y", "zz-test-board", "n"])
+        check(not root.exists(), "done feature removed from the board")
+        f.cli("remove", "--feature", "zz-test-board2", "--yes", "--force")
+    finally:
+        f.gh_binary = FAKE_GH
+        f.config = plain_config
+
+
 def scenario_cleanup_rest(f: Fixture) -> None:
     print("\n=== L. remove the remaining test features")
     for name in ("zz-test-two", "zz-test-three", "zz-test-four", "zz-test-six"):
@@ -675,6 +797,7 @@ def main() -> int:
             scenario_interrupted,
             scenario_cli,
             scenario_nested,
+            scenario_board,
             scenario_cleanup_rest,
         ):
             try:

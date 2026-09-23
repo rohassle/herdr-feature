@@ -2,7 +2,7 @@ id = "feature"
 name = "Feature Workspaces"
 version = "0.1.0"
 min_herdr_version = "0.9.0"
-description = "One Herdr workspace per feature, holding Git worktrees from any number of repositories."
+description = "Feature workspaces: Git worktrees from any number of repositories, a board with pull request progress per feature."
 platforms = ["macos", "linux"]
 
 # Every action runs the same shim, which reads HERDR_PLUGIN_ACTION_ID and opens the
@@ -11,8 +11,8 @@ platforms = ["macos", "linux"]
 
 [[actions]]
 id = "menu"
-title = "Feature: menu"
-description = "Pick one of the feature commands from a menu."
+title = "Feature: board"
+description = "Every feature with its pull request progress. Enter opens; hotkeys run the other commands."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
@@ -34,6 +34,13 @@ command = ["sh", "bin/action.sh"]
 id = "open"
 title = "Feature: open"
 description = "Focus or reopen the workspace of an existing feature."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[actions]]
+id = "close"
+title = "Feature: close workspaces"
+description = "Close a feature's Herdr workspaces. Worktrees, folder and branches are kept."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 

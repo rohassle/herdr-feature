@@ -211,8 +211,31 @@ def pick(
 
     Raises Cancelled when the user escapes or nothing is selected.
     """
+    _, keys = pick_expect(
+        rows, prompt_text=prompt_text, header=header, multi=multi, preview=preview, preview_size=preview_size
+    )
+    return keys
+
+
+def pick_expect(
+    rows: Iterable[str],
+    *,
+    prompt_text: str,
+    header: str | None = None,
+    multi: bool = False,
+    preview: str | None = None,
+    preview_size: str = "55%",
+    expect: Iterable[str] = (),
+    header_lines: int = 0,
+) -> tuple[str, list[str]]:
+    """Like `pick`, but also accepts the hotkeys in `expect` (fzf key names such as
+    "ctrl-r"). Returns (key, chosen keys); `key` is "" for a plain Enter. With a hotkey,
+    the chosen list may be empty when the list had no rows to select.
+
+    `header_lines` marks that many leading rows as non-selectable header rows."""
     if noninteractive():
         raise Abort("an interactive picker was reached in non-interactive mode; pass explicit options.")
+    expect = list(expect)
     lines = [row for row in rows if row]
     if not lines:
         raise Abort("nothing to choose from.")
@@ -237,12 +260,17 @@ def pick(
         args.append("--no-multi")
     if preview:
         args += [f"--preview={preview}", f"--preview-window=right,{preview_size},border-left,wrap"]
+    if expect:
+        args.append(f"--expect={','.join(expect)}")
+    if header_lines:
+        args.append(f"--header-lines={header_lines}")
 
     env = {
         **os.environ,
         "FZF_DEFAULT_OPTS": "",
         "FZF_DEFAULT_COMMAND": "",
         "FZF_DEFAULT_OPTS_FILE": "",
+        "FAKE_FZF_EXPECT": "1" if expect else "",
     }
     sys.stdout.flush()
     result = subprocess.run(
@@ -259,10 +287,15 @@ def pick(
         raise Abort("fzf failed to start; check the terminal size and FZF settings.")
     if result.returncode != 0:
         raise Cancelled()
-    keys = [line for line in result.stdout.splitlines() if line]
-    if not keys:
+    output = result.stdout.splitlines()
+    pressed = ""
+    if expect:
+        pressed = output[0].strip() if output else ""
+        output = output[1:]
+    keys = [line for line in output if line]
+    if not keys and not pressed:
         raise Cancelled()
-    return keys
+    return pressed, keys
 
 
 def restore_terminal() -> None:

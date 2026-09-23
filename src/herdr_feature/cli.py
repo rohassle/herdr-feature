@@ -4,6 +4,8 @@
     herdr-feature add --feature X --repo a [--suffix a=api] [--yes] [--open]
     herdr-feature list [--json]
     herdr-feature open --feature X [--focus]
+    herdr-feature close --feature X [--force] --yes
+    herdr-feature refresh [--feature X] [--json]
     herdr-feature drop --feature X --worktree a@api [--force] --yes
     herdr-feature remove --feature X [--force] [--delete-branches] --yes
 
@@ -18,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import gitops, herdr, manifest, names, ui
+from . import gitops, herdr, manifest, names, prs, ui
 from .commands import common, install_cli
 from .config import Config, load_config
 from .discovery import Repo, scan
@@ -41,10 +43,13 @@ def _feature_dict(
     repo_live: dict[str, dict[str, str]] | None = None,
 ) -> dict:
     nested = (repo_live or {}).get(feature.name, {})
+    progress = common.feature_progress(feature)
     data = {
         "feature": feature.name,
         "root": str(feature.root),
         "status": common.status_word(feature, live, repo_live),
+        "done": progress.done,
+        "progress": {"merged": progress.merged, "total": progress.total, "unknown": progress.unknown},
         "workspace_id": live.get(feature.name),
         "branch_prefix": feature.branch_prefix,
         "worktrees": [],
@@ -53,6 +58,7 @@ def _feature_dict(
         data["error"] = feature.error
         return data
     for wt in feature.worktrees:
+        wp = common.worktree_progress(wt)
         entry = {
             "repo_name": wt.repo_name,
             "repo_path": wt.repo_path,
@@ -62,6 +68,9 @@ def _feature_dict(
             "branch_created": wt.branch_created,
             "branch_source": wt.branch_source,
             "workspace_id": nested.get(wt.folder),
+            "progress": wp.kind,
+            "progress_detail": wp.detail,
+            "pr": wt.pr,
         }
         if states:
             state = gitops.worktree_state(feature.path_of(wt))
@@ -160,11 +169,18 @@ def cmd_list(args, config: Config) -> int:
         return 0
     for item in payload:
         ws = item["workspace_id"] or "-"
-        print(f"{item['feature']:<32} {item['status']:<14} {ws:<6} {len(item['worktrees'])} worktree(s)")
+        progress = item.get("progress") or {}
+        bar = common.FeatureProgress(
+            progress.get("merged", 0), progress.get("total", 0), progress.get("unknown", 0)
+        ).bar()
+        status = "done" if item.get("done") else item["status"]
+        print(f"{item['feature']:<32} {status:<14} {ws:<6} {bar}")
         for wt in item["worktrees"]:
             state = wt.get("state_detail", "")
             nested = wt.get("workspace_id") or "-"
-            print(f"    {wt['folder']:<36} {wt['branch']:<36} {nested:<6} {state}")
+            print(
+                f"    {wt['folder']:<32} {wt['branch']:<32} {nested:<6} {wt.get('progress_detail', ''):<22} {state}"
+            )
     return 0
 
 
@@ -340,6 +356,59 @@ def cmd_open(args, config: Config) -> int:
         payload,
         f"{feature.name}: workspace {opened.any or '-'}" + (" (created)" if opened.created else ""),
     )
+    return 0
+
+
+def cmd_close(args, config: Config) -> int:
+    ui.set_noninteractive(_answers(args))
+    features = common.load_features(config)
+    feature = _find_feature(features, args.feature)
+    live = common.live_map(features)
+    repo_live = common.repo_live_map(features)
+    ids = common.feature_workspace_ids(feature, live, repo_live)
+    payload = {
+        "feature": feature.name,
+        "workspace_id": live.get(feature.name),
+        "repo_workspaces": repo_live.get(feature.name, {}),
+    }
+    if not ids:
+        _emit(args, {**payload, "closed": []}, f"{feature.name} has no open workspace")
+        return 0
+    if not args.yes:
+        _emit(
+            args,
+            {"dry_run": True, **payload},
+            f"dry run only; rerun with --yes to close {len(ids)} workspace(s).",
+        )
+        return 0
+    busy = herdr.busy_panes(*ids)
+    if busy and not args.force:
+        raise ui.Abort(
+            f"the feature's workspaces have {len(busy)} agent(s) working or waiting; pass --force to close them anyway."
+        )
+    closed = common.close_feature_workspaces(feature, live, repo_live)
+    for workspace_id in closed:
+        ui.ok(f"closed workspace {workspace_id}")
+    _emit(
+        args,
+        {**payload, "closed": closed},
+        f"closed {len(closed)} workspace(s) of {feature.name}; files kept",
+    )
+    return 0
+
+
+def cmd_refresh(args, config: Config) -> int:
+    ui.set_noninteractive({})
+    features = common.load_features(config)
+    if args.feature:
+        features = [_find_feature(features, args.feature)]
+    prs.gh_binary()
+    common.refresh_progress(features)
+    live = common.live_map(features)
+    repo_live = common.repo_live_map(features)
+    payload = [_feature_dict(f, live, states=False, repo_live=repo_live) for f in features]
+    done = sum(1 for item in payload if item.get("done"))
+    _emit(args, payload, f"refreshed {len(payload)} feature(s); {done} done")
     return 0
 
 
@@ -540,6 +609,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--feature", required=True)
     p.add_argument("--focus", action="store_true")
     p.set_defaults(func=cmd_open)
+
+    p = sub.add_parser("close", help="close a feature's Herdr workspaces (files and branches kept)")
+    common_flags(p, mutating=True)
+    p.add_argument("--feature", help="feature name (default: the one this pane's workspace belongs to)")
+    p.add_argument("--force", action="store_true", help="close even with agents working or waiting")
+    p.set_defaults(func=cmd_close)
+
+    p = sub.add_parser("refresh", help="look up every worktree's pull request with gh and fetch remotes")
+    common_flags(p, mutating=False)
+    p.add_argument("--feature", help="only this feature (default: all)")
+    p.set_defaults(func=cmd_refresh)
 
     p = sub.add_parser("drop", help="remove worktrees from a feature (branches kept)")
     common_flags(p, mutating=True)

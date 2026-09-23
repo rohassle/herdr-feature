@@ -36,6 +36,7 @@ class Worktree:
     base_commit: str | None
     remote: str | None
     added_at: str = field(default_factory=now)
+    pr: dict | None = None  # last GitHub pull request lookup, see prs.py
 
     @property
     def label(self) -> str:
@@ -162,6 +163,7 @@ def from_dict(data: dict, root: Path) -> Feature:
                 base_commit=raw.get("base_commit"),
                 remote=raw.get("remote"),
                 added_at=raw.get("added_at", ""),
+                pr=raw["pr"] if isinstance(raw.get("pr"), dict) else None,
             )
         )
     workspace = data.get("workspace")

@@ -20,20 +20,26 @@ in the feature root. Nothing is symlinked, nothing is a repository at the root l
 
 ```
  prefix+f ─► action.sh ─► herdr plugin pane open (popup) ─► bootstrap.sh ─► python -m herdr_feature
-                                                                           │  FEATURE_ACTION=new|add|...
+                                                                           │  FEATURE_ACTION=menu (board)|new|add|...
                                                                            ▼
+                                                                    commands/board.py ─► new/add/close/drop/remove
+                                                                           │              (hotkeys, in-process)
  herdr-feature new --name … ─► bootstrap.sh cli ─► herdr_feature.cli ──► commands/common.py
-                                                                           preflight · execute · rollback
+                                                                           preflight · execute · rollback · progress
                                                                            │
-                                          ┌────────────────────────────────┼─────────────────────┐
-                                          ▼                                ▼                     ▼
-                                       gitops.py                       manifest.py            herdr.py
-                                (git worktree/fetch/branch)        (.feature.json)     (herdr CLI, pane scan)
+                                  ┌───────────────────────┬────────────────┼─────────────────────┐
+                                  ▼                       ▼                ▼                     ▼
+                               gitops.py               prs.py          manifest.py            herdr.py
+                        (git worktree/fetch/branch) (gh pr lookup)   (.feature.json)     (herdr CLI, pane scan)
 ```
 
 - **Popup path** (`commands/*.py`): interactive. `fzf` pickers and typed prompts via `ui.py`.
   Actions run without a TTY, so `bin/action.sh` only opens the single popup entrypoint and
-  forwards the action id and the invoker's workspace in the environment (ADR 0005).
+  forwards the action id and the invoker's workspace in the environment (ADR 0005). The
+  landing screen is the **board** (`board.py`): every feature with a progress bar, Enter
+  opens or focuses, `ctrl-n/a/d/w/x/r/o/t` run new, add, drop, close, remove, refresh, open
+  PRs, install-cli on the selected feature and redraw. Sub-commands take a preselected
+  `feature` argument so the board can skip their pickers.
 - **CLI path** (`cli.py`): non-interactive. It calls `ui.set_noninteractive(answers)`; every
   prompt in the shared code carries a `key`, and `ui._read` answers from that dict or aborts
   with a message naming the missing option. Progress goes to stderr, `--json` to stdout.
@@ -66,10 +72,12 @@ idempotent and used by `new`, `open` and `add`.
 | `__main__.py` | Entry. Dispatches on `FEATURE_ACTION`/argv, handles `cli`, `preview-*` for fzf previews, converts `Abort`/`Cancelled` into exit codes. | everything |
 | `cli.py` | argparse surface for agents/scripts; resolves `--repo` names, builds `Request`s, prints JSON. | `commands.common`, `herdr`, `gitops` |
 | `commands/common.py` | Pickers, `preflight`, `execute`, `rollback`, status words, state tables. | `gitops`, `manifest`, `herdr`, `ui`, `names` |
-| `commands/{new,add,open_,drop,remove,menu,install_cli}.py` | One interactive flow each. Thin. | `common` |
+| `commands/board.py` | The landing screen: rows with progress bars, hotkeys, redraw loop. | `common`, other commands |
+| `commands/{new,add,open_,close,drop,remove,install_cli}.py` | One interactive flow each. Thin. Accept a preselected feature from the board. | `common` |
 | `ui.py` | fzf wrapper (hidden key column, exit codes, neutralised env), prompts with keys, scripted answers for tests, non-interactive mode, output stream. | fzf |
 | `gitops.py` | All git: default-branch chain, parallel fetch with error classification, branch matrix, `worktree add/remove/prune`, state. | git |
 | `manifest.py` | `Feature`/`Worktree` dataclasses, versioned load/validate/migrate, atomic save, discovery, branch claims. | filesystem |
+| `prs.py` | `gh` wrapper: pull request lookup per worktree (`pr list --head`), parallel refresh, manifest cache (`Worktree.pr`), auth check. | gh |
 | `herdr.py` | `herdr` CLI wrapper with stderr JSON error parsing; invocation context; feature to workspace mapping (feature workspace via pane cwd, per-repository workspaces via Herdr worktree provenance); open/focus/close of both kinds. | herdr |
 | `discovery.py` | Repository scanner (primary checkouts only). | filesystem |
 | `config.py` | TOML config with validation and first-run template. | filesystem, git |
@@ -97,6 +105,15 @@ idempotent and used by `new`, `open` and `add`.
 - **One popup entrypoint** (0005) because a popup cannot open another popup and cannot be
   addressed via pane APIs; the menu runs sub-commands in-process.
 
+## Progress (ADR 0008)
+
+`common.worktree_progress` reads the cached `pr` object: `merged` · `open-pr` · `closed-pr` ·
+`no-pr` · `unknown` (never refreshed or lookup failed). `common.feature_progress` counts
+merged/total/unknown and renders the bar (`█` merged, `░` pending, `?` unknown). A feature
+is done when merged == total > 0. `common.refresh_progress` runs `prs.refresh` (requires a
+logged-in `gh`) and then fetches every repository's default branch. Nothing here touches the
+network unless the user asks (`ctrl-r`, `herdr-feature refresh`).
+
 ## Manifest (`.feature.json`, version 1)
 
 ```json
@@ -107,8 +124,12 @@ idempotent and used by `new`, `open` and `add`.
                    "folder": "payments-api", "suffix": null, "branch": "pay-1234-retry",
                    "branch_created": true, "branch_source": "new",
                    "base_ref": "refs/remotes/origin/main", "base_commit": "…",
-                   "remote": "origin", "added_at": "…" } ] }
+                   "remote": "origin", "added_at": "…",
+                   "pr": { "number": 41, "url": "…", "state": "OPEN", "draft": false, "review": "APPROVED",
+                           "title": "…", "merged_at": null, "error": null, "checked_at": "…" } } ] }
 ```
+
+`pr` is optional: the last `gh` lookup for that branch, or absent before the first refresh.
 
 `folder` is relative so the features directory can move; `repo_path` is absolute so removal
 works even when the worktree folder is gone. `status: creating` marks an interrupted run and

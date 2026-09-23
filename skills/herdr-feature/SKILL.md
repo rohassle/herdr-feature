@@ -1,60 +1,114 @@
 ---
 name: herdr-feature
-description: Create and manage cross-repository feature workspaces in Herdr from the command line with `herdr-feature` (new, add, list, open, drop, remove). Use when asked to start a feature spanning several repositories, add another repository's worktree to the current feature, or tear a feature down. Requires running inside Herdr (HERDR_ENV=1).
+description: Work in features, threads of work that span several Git repositories, managed by the herdr-feature plugin for Herdr. Use when asked to start work that touches more than one repository, to add a repository to the current feature, to report where a feature stands (which pull requests are merged), to park or reopen a feature's workspaces, or to tear a finished feature down. Requires running inside Herdr (HERDR_ENV=1) and a logged-in `gh`.
 ---
 
 # herdr-feature
 
-A feature is a folder under `~/.herdr/features/<name>/` holding one Git worktree per
-repository, plus one Herdr workspace whose tab starts in that folder. Depending on the
-`workspaces` config key, each worktree may also have its own Herdr worktree workspace,
-nested in the sidebar under its repository (`"repos"` or `"both"`). `herdr-feature` is
-the non-interactive twin of the plugin's `prefix+f` popup.
+## The idea
 
-Check you are inside Herdr first: `test "${HERDR_ENV:-}" = 1`.
+Work here is organised in **features**, not repositories. A feature is one thread of work
+with a name (usually the ticket or the outcome), a folder `~/.herdr/features/<name>/`
+holding one Git worktree per repository it touches, and Herdr workspaces to work in. The
+human picks the thread they want to advance from a board (`prefix+f`); you advance it.
+
+A feature moves through one lifecycle, and your job is to move it along and report where
+it is:
+
+```
+new ──► work in the worktrees ──► push ──► one pull request per worktree ──► merged ──► done ──► remove
+                                                                   ▲
+                                              progress = merged worktrees / all worktrees
+```
+
+**Done means merged on GitHub.** A worktree is done when the pull request whose head is
+its branch is merged. A feature is done when every worktree is. Nothing is inferred from
+git history: a branch without a pull request is `no PR`, and a lookup that could not be
+made is `unknown`. Both count as not done.
+
+Rules you can rely on, and must keep:
+
+- **Closing never deletes.** `close` shuts workspaces; worktrees, folder and branches stay.
+  Only `remove` and `drop` delete, and they refuse unsaved or unpushed work without `--force`.
+- **Only branches the plugin created are ever deleted** (`branch_created` in the manifest).
+- **Open and close are symmetric.** `open` brings a thread's workspaces up, `close` takes
+  them down. Park a thread with `close`; finish it with `remove`.
+- **Never bypass Herdr's `workspace_group_close_required`** by closing repository
+  workspaces yourself; the plugin closes only the feature's own workspaces.
+
+Check you are inside Herdr first: `test "${HERDR_ENV:-}" = 1`. If `herdr-feature` is not on
+PATH, run the plugin's `install-cli` action once (`prefix+f`, then `ctrl-t`).
+
+## How to work
+
+1. **Look before you create.** `herdr-feature list --json` shows every feature, its
+   status (`open`, `closed`), `done`, `progress {merged,total,unknown}`, and per worktree
+   its `path`, `branch`, `progress` (`merged` · `open-pr` · `closed-pr` · `no-pr` ·
+   `unknown`), `pr` (number, url, state, review) and `workspace_id`. If a thread for the
+   task exists, join it; do not start a second one for the same ticket.
+2. **Start a thread** with `new`, naming every repository it will touch. Add a repository
+   later with `add`; a second worktree of the same repository needs `--suffix REPO=NAME`.
+3. **Work inside the worktrees.** Each entry lives at `<root>/<folder>` on its own branch.
+   With `workspaces = "repos"` every worktree has its own Herdr workspace nested under
+   its repository; with `"feature"`/`"both"` there is also a workspace rooted at the
+   feature folder, where cross-repository commands (`rg`, `fd`) see every repository.
+4. **Push and open a pull request per worktree**, head = the worktree's branch. That is
+   what progress is measured on.
+5. **Refresh before you report.** `herdr-feature refresh --feature X --json` asks GitHub
+   for every pull request and fetches the default branches. The board and `list` read the
+   cached answer, so a report without a refresh may be stale.
+6. **Park or finish.** `close` when the human moves to another thread; `remove` when the
+   feature is done (`--delete-branches` to also drop the branches the plugin created).
 
 ## Commands
-
-If `herdr-feature` is not on PATH, run the plugin's `install-cli` action once (`prefix+f`, then `install-cli`).
 
 Every mutating command is a **dry run until you add `--yes`**. Add `--json` for a machine
 readable result on stdout; progress lines go to stderr.
 
 ```bash
-herdr-feature list --json                                   # features, status, workspace id, worktree states
+herdr-feature list --json                                   # all features: status, done, progress, PRs, workspaces
+herdr-feature refresh [--feature X] --json                  # look up PRs with gh + fetch; needs a logged-in gh
 herdr-feature new --name pay-1234-retry --repo payments-api --repo payments-web            # dry run: shows the plan
 herdr-feature new --name pay-1234-retry --repo payments-api --repo payments-web --yes --json
 herdr-feature add --feature pay-1234-retry --repo shared-charts --yes
 herdr-feature add --feature pay-1234-retry --repo payments-api --suffix payments-api=migration --yes
-herdr-feature open --feature pay-1234-retry --json         # focuses nothing unless --focus; creates a workspace if none
+herdr-feature open --feature pay-1234-retry --json          # (re)opens missing workspaces; --focus to switch to it
+herdr-feature close --feature pay-1234-retry --yes          # closes its workspaces; nothing deleted
 herdr-feature drop --feature pay-1234-retry --worktree shared-charts --yes
-herdr-feature remove --feature pay-1234-retry --yes        # add --delete-branches to also delete branches it created
+herdr-feature remove --feature pay-1234-retry --yes         # add --delete-branches to also delete branches it created
 ```
 
-- `--repo` takes a repository name from the configured folders (`~/code` by default)
-  or a path. Repeat it per repository.
-- A second worktree of the same repository needs `--suffix REPO=NAME`; it lands in
-  `REPO@NAME` on branch `<branch>-NAME`.
-- `--on-fetch-failure continue` uses the last fetched state when the remote is unreachable;
+- `--repo` takes a repository name from the configured folders or a path. Repeat it.
+- `--on-fetch-failure continue` uses the last fetched state when a remote is unreachable;
   the default aborts with nothing created.
-- Inside a feature's workspace, `add`, `drop` and `remove` default to that feature, so
-  `--feature` can be omitted.
-- `drop`/`remove` refuse worktrees with uncommitted or unpushed work unless `--force`.
-- `new` leaves the user's focus alone; pass `--focus` only if asked to switch.
+- Inside a feature's workspace, `add`, `close`, `drop` and `remove` default to that
+  feature, so `--feature` can be omitted.
+- `drop`/`remove` refuse worktrees with uncommitted or unpushed work unless `--force`;
+  `close`/`remove` refuse to kill working agents unless `--force`.
+- `new` and `open` leave the human's focus alone; pass `--focus` only if asked to switch.
 
-## After creating a feature
+## Reporting to the human
 
-The JSON result carries `workspace_id` (the feature workspace, `null` when the config
-opens only nested workspaces) and, per worktree, its `path` and `workspace_id` (its nested
-worktree workspace, `null` when not open). Continue with the Herdr CLI, for example to
-start an agent in the new workspace:
+Report per feature, in this shape, after a refresh:
+
+```
+pay-1234-retry  2/3 merged
+  payments-api        #41 merged
+  payments-web        #57 open · approved        https://github.com/org/payments-web/pull/57
+  shared-charts       no PR · 3 unpushed
+```
+
+Lead with what blocks done: worktrees with `no PR`, pull requests with changes requested,
+worktrees with unpushed or uncommitted work. Say when a feature is done and can be removed.
+
+## Continuing into Herdr
+
+The JSON result of `new`/`open` carries `workspace_id` (the feature workspace, `null` when
+the config opens only nested workspaces) and each worktree's `workspace_id`. Start an agent
+in one of them:
 
 ```bash
-ws=$(herdr-feature new --name X --repo a --repo b --yes --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["workspace_id"])')
+ws=$(herdr-feature open --feature X --json | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["workspace_id"] or list(d["repo_workspaces"].values())[0])')
 pane=$(herdr pane list --workspace "$ws" | python3 -c 'import json,sys;print(json.load(sys.stdin)["result"]["panes"][0]["pane_id"])')
 herdr agent start worker --kind claude --pane "$pane"
 ```
-
-Closing a workspace never deletes a feature; only `remove` does. `remove` and `drop` close
-the nested worktree workspaces they make obsolete, but never the repository workspaces
-Herdr opened as their parents.

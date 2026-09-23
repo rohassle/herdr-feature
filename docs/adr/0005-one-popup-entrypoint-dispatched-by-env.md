@@ -16,3 +16,11 @@ context may describe the popup rather than the pane the key was pressed in.
 
 Adding a command means one `[[actions]]` entry and one Python module. When another modal
 is open the shim turns `ui_busy` into a toast instead of a logged error.
+
+## Update (board)
+
+The landing screen of that single popup is the feature board (`commands/board.py`): every
+feature with its pull request progress (ADR 0008), Enter to open, hotkeys for the other
+commands. The `menu` action id is kept for existing keybindings and opens the board. The
+board runs sub-commands in-process and redraws afterwards, so a whole session of new,
+add, close and refresh happens inside one popup.

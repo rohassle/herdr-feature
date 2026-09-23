@@ -1,16 +1,19 @@
 # Working on herdr-feature
 
-A Herdr plugin. One Herdr workspace per feature; a feature is a folder under
+A Herdr plugin. A feature is a thread of work across repositories: a folder under
 `~/.herdr/features/<name>/` holding one Git worktree per repository plus a `.feature.json`
-manifest. Users drive it from a popup (`prefix+f`), agents and scripts from the
-`herdr-feature` CLI. Both share the same core. Read [ARCHITECTURE.md](ARCHITECTURE.md) before
+manifest, surfaced as Herdr workspaces. Users drive it from the board popup (`prefix+f`),
+agents and scripts from the `herdr-feature` CLI. Both share the same core. A worktree is
+done when its pull request is merged (looked up with `gh`, ADR 0008). Read [ARCHITECTURE.md](ARCHITECTURE.md) before
 changing anything under `src/`, and [CONTEXT.md](CONTEXT.md) for the vocabulary.
 
 ## Rules of the road
 
 - **No runtime dependencies.** Herdr runs the plugin with a system Python 3.11+ found by
-  `bin/bootstrap.sh`; end users never install a virtualenv. Standard library plus `fzf` only.
-  `uv` is for development.
+  `bin/bootstrap.sh`; end users never install a virtualenv. Standard library plus the `fzf`
+  and `gh` commands only. `uv` is for development.
+- **Done means merged on GitHub.** Progress comes from `gh`, never from git history alone;
+  without `gh` progress is `unknown`, not guessed. Lookups happen only on refresh.
 - **Closing a workspace never deletes anything.** Only `remove` and `drop` delete, after
   showing state and confirming. Do not add "cleanup on close" behaviour.
 - **The manifest is the source of truth**, written atomically. Herdr workspace ids are hints
@@ -44,10 +47,11 @@ herdr plugin log list --plugin feature    # stderr of action runs
 ## Layout
 
 ```
-herdr-plugin.toml        manifest: 7 actions (all run bin/action.sh), 1 popup pane (bin/bootstrap.sh)
+herdr-plugin.toml        manifest: 8 actions (all run bin/action.sh), 1 popup pane (bin/bootstrap.sh)
 bin/                     action.sh (opens the popup), bootstrap.sh (finds python, runs the package), herdr-feature (CLI launcher)
 src/herdr_feature/       the package; see ARCHITECTURE.md
 tests/                   unittest modules; tests/e2e/run.py drives the real thing against fixture repos
+                         with a fake fzf (fake_fzf.sh) and a fake gh (fake_gh.sh)
 skills/herdr-feature/    Claude Code skill installed by install-cli
 docs/adr/                design decisions
 ```

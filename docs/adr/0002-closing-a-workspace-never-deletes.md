@@ -12,3 +12,9 @@ vetoed. It also matches Herdr's own behaviour for its native worktrees.
 
 Closed features accumulate until removed, so `open` (to come back) and `remove` (to let
 go) are first-class commands, not polish.
+
+## Update (close command)
+
+`close` is the explicit form of this rule and the mirror of `open`: it shuts every Herdr
+workspace of a feature (the feature workspace and the nested per-repository ones) and
+touches nothing on disk. Parking a thread of work is `close`; finishing it is `remove`.

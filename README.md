@@ -1,7 +1,21 @@
 # herdr-feature
 
-One [Herdr](https://herdr.dev) workspace per feature, holding Git worktrees from as many
-repositories as the feature touches.
+A command center for features that span repositories, inside [Herdr](https://herdr.dev).
+Each feature is a thread of work: one Git worktree per repository it touches, opened as
+Herdr workspaces, tracked to done through its pull requests.
+
+```
+feature>   3 features · 2 open · 1 done · 4/7 merged   ·   PRs refreshed 12m ago
+           enter: open / focus   ctrl-n: new   ctrl-a: add   ctrl-w: close   ctrl-x: remove   ctrl-r: refresh
+
+  pay-1234-retry          ████████░░░░ 2/3   open     3 worktrees · 1 PR open
+  search-reindex          ░░░░░░░░░░░░ 0/2   closed   2 worktrees · 2 PRs open
+  onboarding-copy         ████████████ 2/2   done     2 worktrees
+```
+
+Press `prefix+f`, pick the thread you want to work on, Enter. A worktree is done when its
+pull request is merged; a feature is done when every worktree is, and then Enter offers to
+remove it.
 
 Herdr's built-in worktree support binds one worktree to one workspace. That is the right
 model until a change spans several repositories and the agent working on it can only see
@@ -41,6 +55,7 @@ a Herdr group parent; see [docs/adr/0007](docs/adr/0007-optional-nested-worktree
 - Herdr 0.9.0 or newer
 - Python 3.11 or newer (for `tomllib`)
 - [`fzf`](https://github.com/junegunn/fzf)
+- [`gh`](https://cli.github.com), logged in (`gh auth login`): progress is read from pull requests
 - Git 2.31 or newer
 - macOS or Linux
 
@@ -83,7 +98,25 @@ description = "feature workspaces menu"
 
 ## Use
 
-Press `prefix+f`. A popup offers five commands.
+Press `prefix+f`. The board lists every feature with a progress bar (`█` merged, `░` not
+yet, `?` not refreshed), its status (`open`, `closed`, `done`) and a one-line summary. The
+preview on the right shows each worktree's branch, pull request and local state.
+
+| key | on the selected feature |
+|---|---|
+| `Enter` | open or focus its workspaces; on a `done` feature, offer to remove it (branch deletion defaults to yes) |
+| `ctrl-n` | new feature |
+| `ctrl-a` | add repositories |
+| `ctrl-d` | drop worktrees |
+| `ctrl-w` | close its workspaces (files, worktrees and branches are kept) |
+| `ctrl-x` | remove it |
+| `ctrl-r` | refresh: look up every pull request with `gh`, fetch every repository's default branch |
+| `ctrl-o` | open its pull requests in the browser |
+| `ctrl-t` | install the `herdr-feature` command line |
+
+Opening the board never touches the network; the header says how old the pull request
+information is. Without `gh`, or logged out, the board still opens features and says why
+progress is unknown.
 
 **new**: type a feature name, Tab-mark repositories in `fzf` (the preview shows each
 repository's recent commits), confirm the plan. Every repository gets a worktree on the
@@ -98,9 +131,11 @@ workspace opens focused, with one tab rooted at the feature folder.
 is already part of the feature is marked with `●`; picking it again asks for a short
 suffix and creates a second worktree, `<repo>@<suffix>` on `<branch>-<suffix>`.
 
-**open**: list every feature on disk with its status (`open`, `closed`, `[interrupted]`).
-Open features are focused; closed ones get a fresh workspace. With nested workspaces
-enabled, `open` also re-opens any per-repository workspace that is missing.
+**open** (Enter): a live feature is focused; a closed one gets its workspaces back. With
+nested workspaces enabled, this also re-opens any per-repository workspace that is missing.
+
+**close** (`ctrl-w`): the mirror of open. Every Herdr workspace of the feature is closed,
+nothing on disk changes. Park a thread you are not working on; come back to it with Enter.
 
 **drop**: remove individual worktrees from the current feature. Branches are kept.
 Worktrees with uncommitted or unpushed work require typing the feature name.
@@ -112,6 +147,15 @@ are never deleted. The repository workspaces Herdr opened as group parents stay 
 
 If a fetch fails (offline, VPN down) you are asked once whether to continue from the
 last fetched state or abort everything.
+
+### What "done" means
+
+A worktree is done when the pull request whose head is its branch is merged on GitHub.
+`ctrl-r` (or `herdr-feature refresh`) asks `gh pr list --head <branch>` inside each worktree
+and caches the answer in the manifest, so the board is instant and honest about its age.
+There is no guess from git history: a branch with no pull request reads `no PR`, a lookup
+that failed reads its error, both count as not merged. See
+[docs/adr/0008](docs/adr/0008-done-means-pr-merged.md).
 
 ## Driving it from an agent or a script
 
@@ -129,15 +173,17 @@ Both create `~/.local/bin/herdr-feature` and `~/.claude/skills/herdr-feature` as
 into the plugin folder (`--no-skill` to skip the skill, `uninstall-cli` to remove both).
 
 ```sh
-herdr-feature list --json
+herdr-feature list --json                                  # progress, PRs, workspace ids per feature
+herdr-feature refresh [--feature pay-1234-retry] --json    # look up pull requests with gh, fetch remotes
 herdr-feature new --name pay-1234-retry --repo payments-api --repo payments-web --yes --json
 herdr-feature add --feature pay-1234-retry --repo payments-api --suffix payments-api=migration --yes
 herdr-feature open --feature pay-1234-retry
+herdr-feature close --feature pay-1234-retry --yes         # workspaces only; files and branches kept
 herdr-feature drop --feature pay-1234-retry --worktree payments-api@migration --yes
 herdr-feature remove --feature pay-1234-retry --yes --delete-branches
 ```
 
-Inside a feature's workspace `--feature` may be omitted for `add`, `drop` and `remove`.
+Inside a feature's workspace `--feature` may be omitted for `add`, `close`, `drop` and `remove`.
 `--on-fetch-failure continue` replaces the popup's prompt; `--force` replaces the typed
 confirmation for worktrees with unsaved work. A ready-made agent skill lives in
 [skills/herdr-feature](skills/herdr-feature/SKILL.md).

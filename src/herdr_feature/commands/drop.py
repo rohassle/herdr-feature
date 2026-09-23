@@ -7,13 +7,19 @@ from pathlib import Path
 from .. import gitops, herdr, ui
 from ..config import Config
 from ..lock import mutation_lock
+from ..manifest import Feature
 from . import common
 from .add import resolve_target
 
 
-def run(config: Config) -> None:
+def run(config: Config, feature: Feature | None = None) -> None:
     features = common.load_features(config)
-    feature, live = resolve_target(config, features, verb="drop worktrees from")
+    if feature is not None:
+        feature = next((f for f in features if f.root == feature.root), feature)
+        if not feature.mutable:
+            raise ui.Abort(f"{feature.name} cannot be changed right now.")
+    else:
+        feature, _ = resolve_target(config, features, verb="drop worktrees from")
     if not feature.worktrees:
         raise ui.Abort(f"{feature.name} has no worktrees to drop.")
     ui.heading(f"Drop worktrees from {feature.name}")

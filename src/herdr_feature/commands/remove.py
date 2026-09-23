@@ -9,22 +9,26 @@ from pathlib import Path
 from .. import gitops, herdr, manifest, ui
 from ..config import Config
 from ..lock import mutation_lock
+from ..manifest import Feature
 from . import common
 
 
-def run(config: Config) -> None:
+def run(config: Config, feature: Feature | None = None, *, delete_branches_default: bool = False) -> None:
     features = common.load_features(config)
     if not features:
         raise ui.Abort(f"No features under {config.features_directory}.")
     live = common.live_map(features)
     repo_live = common.repo_live_map(features)
-    feature = common.choose_feature(
-        features,
-        live,
-        prompt_text="remove> ",
-        header="Enter: choose the feature to remove   Esc: cancel",
-        repo_live=repo_live,
-    )
+    if feature is not None:
+        feature = next((f for f in features if f.root == feature.root), feature)
+    else:
+        feature = common.choose_feature(
+            features,
+            live,
+            prompt_text="remove> ",
+            header="Enter: choose the feature to remove   Esc: cancel",
+            repo_live=repo_live,
+        )
     if not feature.readable:
         raise ui.Abort(
             f"{feature.name} has an unreadable manifest ({feature.error}), so its worktrees are\n"
@@ -36,7 +40,10 @@ def run(config: Config) -> None:
     ui.heading(f"Remove {feature.name}")
     states = {wt.folder: gitops.worktree_state(feature.path_of(wt)) for wt in feature.worktrees}
     for worktree in feature.worktrees:
-        ui.step(f"{worktree.folder:<40} {worktree.branch:<40} {states[worktree.folder].detail}")
+        progress = common.worktree_progress(worktree)
+        ui.step(
+            f"{worktree.folder:<32} {worktree.branch:<32} {progress.detail:<22} {states[worktree.folder].detail}"
+        )
     if not feature.worktrees:
         ui.step("(no worktrees)")
 
@@ -65,12 +72,8 @@ def run(config: Config) -> None:
 
         if workspace_id or nested:
             ui.heading("Closing workspaces")
-            for folder, nested_id in nested.items():
-                herdr.close_workspace(nested_id)
-                ui.ok(f"closed {nested_id} ({folder})")
-            if workspace_id:
-                herdr.close_workspace(workspace_id)
-                ui.ok(f"closed {workspace_id}")
+            for closed_id in common.close_feature_workspaces(feature, live, repo_live):
+                ui.ok(f"closed {closed_id}")
 
         ui.heading("Removing worktrees")
         entries = list(feature.worktrees)
@@ -92,7 +95,10 @@ def run(config: Config) -> None:
         ui.heading("Branches this feature created")
         for worktree in deletable:
             ui.step(f"{worktree.repo_name:<32} {worktree.branch}")
-        if ui.confirm("Delete these local branches too? (remote branches are never touched)", default=False):
+        if ui.confirm(
+            "Delete these local branches too? (remote branches are never touched)",
+            default=delete_branches_default,
+        ):
             for worktree in deletable:
                 problem = gitops.branch_delete(Path(worktree.repo_path), worktree.branch)
                 if problem:

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
-from .. import gitops, herdr, manifest, names, ui
+from .. import gitops, herdr, manifest, names, prs, ui
 from ..config import Config
 from ..discovery import Repo, scan
 from ..manifest import Feature, Worktree
@@ -388,3 +389,148 @@ def open_workspaces(
     if opened.workspace_id and feature.mutable:
         feature.save()
     return opened
+
+
+# --- progress: done means the pull request is merged (ADR 0008) ---------------------
+
+PROGRESS_MERGED = "merged"
+PROGRESS_OPEN_PR = "open-pr"
+PROGRESS_CLOSED_PR = "closed-pr"
+PROGRESS_NO_PR = "no-pr"
+PROGRESS_UNKNOWN = "unknown"
+
+
+@dataclass
+class Progress:
+    kind: str
+    detail: str
+    pr: prs.PullRequest | None = None
+
+    @property
+    def merged(self) -> bool:
+        return self.kind == PROGRESS_MERGED
+
+
+def worktree_progress(worktree: Worktree) -> Progress:
+    """Where one worktree stands on its way to merged, from the cached lookup."""
+    pr = prs.from_dict(worktree.pr)
+    if pr is None:
+        return Progress(PROGRESS_UNKNOWN, "not refreshed")
+    if pr.error:
+        return Progress(PROGRESS_UNKNOWN, pr.error, pr)
+    if pr.number is None:
+        return Progress(PROGRESS_NO_PR, "no PR", pr)
+    label = f"#{pr.number}"
+    if pr.state == prs.STATE_MERGED:
+        return Progress(PROGRESS_MERGED, f"{label} merged", pr)
+    if pr.state == prs.STATE_CLOSED:
+        return Progress(PROGRESS_CLOSED_PR, f"{label} closed", pr)
+    review = {
+        "APPROVED": "approved",
+        "CHANGES_REQUESTED": "changes requested",
+        "REVIEW_REQUIRED": "review pending",
+    }.get(pr.review or "", "")
+    detail = f"{label} " + ("draft" if pr.draft else "open") + (f" · {review}" if review else "")
+    return Progress(PROGRESS_OPEN_PR, detail, pr)
+
+
+@dataclass
+class FeatureProgress:
+    merged: int
+    total: int
+    unknown: int
+
+    @property
+    def done(self) -> bool:
+        return self.total > 0 and self.merged == self.total
+
+    def bar(self, width: int = 12) -> str:
+        if self.total == 0:
+            return "░" * width + " 0/0"
+        filled = round(width * self.merged / self.total)
+        cells = ["█"] * filled + ["░"] * (width - filled)
+        # Unknown entries eat the trailing cells as '?', so a never-refreshed feature reads as such.
+        pending = round(width * self.unknown / self.total)
+        for index in range(max(0, width - pending), width):
+            if cells[index] == "░":
+                cells[index] = "?"
+        return "".join(cells) + f" {self.merged}/{self.total}"
+
+
+def feature_progress(feature: Feature) -> FeatureProgress:
+    if not feature.readable:
+        return FeatureProgress(0, 0, 0)
+    kinds = [worktree_progress(wt).kind for wt in feature.worktrees]
+    return FeatureProgress(
+        merged=sum(kind == PROGRESS_MERGED for kind in kinds),
+        total=len(kinds),
+        unknown=sum(kind == PROGRESS_UNKNOWN for kind in kinds),
+    )
+
+
+def age(stamp: str | None, *, now: datetime | None = None) -> str:
+    """'never', '3m ago', '2h ago', '5d ago' for a manifest timestamp."""
+    if not stamp:
+        return "never"
+    try:
+        then = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return "unknown"
+    seconds = int(((now or datetime.now(UTC)) - then).total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
+
+
+def refresh_progress(features: list[Feature]) -> None:
+    """Interactive refresh: look up every pull request, report each, fetch remotes."""
+    ui.heading("Refreshing pull requests")
+
+    def report(result: prs.LookupResult) -> None:
+        progress = worktree_progress(result.worktree)
+        line = f"{result.feature.name}/{result.worktree.folder}: {progress.detail}"
+        (ui.fail if progress.kind == PROGRESS_UNKNOWN else ui.ok)(line)
+
+    prs.refresh(features, on_done=report)
+    targets = {
+        (wt.repo_path, wt.base_ref.rsplit("/", 1)[-1])
+        for feature in features
+        if feature.mutable
+        for wt in feature.worktrees
+        if wt.remote and wt.base_ref
+    }
+    if targets:
+        ui.heading(f"Fetching {len(targets)} remote{'s' if len(targets) != 1 else ''}")
+        gitops.fetch_all(
+            [(Path(repo), branch) for repo, branch in sorted(targets)],
+            on_done=lambda r: (ui.ok if r.ok else ui.fail)(
+                f"{r.repo.name}" + ("" if r.ok else f": {r.reason}")
+            ),
+        )
+
+
+# --- closing workspaces (never deletes anything, ADR 0002) --------------------------
+
+
+def feature_workspace_ids(
+    feature: Feature, live: dict[str, str], repo_live: dict[str, dict[str, str]]
+) -> list[str]:
+    """Every open workspace of a feature: nested worktree workspaces first, then the
+    feature workspace. Closing in this order never needs Herdr's --group."""
+    nested = list(repo_live.get(feature.name, {}).values())
+    feature_id = live.get(feature.name)
+    return nested + ([feature_id] if feature_id else [])
+
+
+def close_feature_workspaces(
+    feature: Feature, live: dict[str, str], repo_live: dict[str, dict[str, str]]
+) -> list[str]:
+    closed = []
+    for workspace_id in feature_workspace_ids(feature, live, repo_live):
+        if herdr.close_workspace(workspace_id):
+            closed.append(workspace_id)
+    return closed

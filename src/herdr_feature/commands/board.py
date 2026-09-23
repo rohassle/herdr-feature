@@ -1,0 +1,209 @@
+"""board: the landing screen. Every feature as a thread of work with a progress bar;
+Enter opens or focuses it, hotkeys run the other commands on the selected feature."""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+
+from .. import manifest, prs, ui
+from ..config import Config
+from ..manifest import Feature
+from . import add, close, common, drop, install_cli, new, remove
+
+HOTKEYS = [
+    ("enter", "open / focus (done: remove)"),
+    ("ctrl-n", "new"),
+    ("ctrl-a", "add repos"),
+    ("ctrl-d", "drop worktrees"),
+    ("ctrl-w", "close workspaces"),
+    ("ctrl-x", "remove"),
+    ("ctrl-r", "refresh PRs"),
+    ("ctrl-o", "open PRs in browser"),
+    ("ctrl-t", "install cli"),
+]
+EXPECT = [key for key, _ in HOTKEYS if key != "enter"]
+
+STATUS_DONE = "done"
+
+
+def _status(feature: Feature, live: dict, repo_live: dict) -> str:
+    word = common.status_word(feature, live, repo_live)
+    if word in ("open", "closed") and common.feature_progress(feature).done:
+        return STATUS_DONE
+    return word
+
+
+def _rank(status: str) -> int:
+    return {"open": 0, "closed": 1, STATUS_DONE: 3}.get(status, 2)
+
+
+def _rows(features: list[Feature], live: dict, repo_live: dict) -> tuple[list[str], dict[str, Feature]]:
+    items = [(feature, _status(feature, live, repo_live)) for feature in features]
+    items.sort(key=lambda item: (_rank(item[1]), -_updated(item[0])))
+    rows, by_key = [], {}
+    for feature, status in items:
+        progress = common.feature_progress(feature)
+        count = len(feature.worktrees) if feature.readable else 0
+        open_prs = sum(
+            common.worktree_progress(wt).kind == common.PROGRESS_OPEN_PR for wt in feature.worktrees
+        )
+        detail = f"{count} worktree{'s' if count != 1 else ''}"
+        if open_prs:
+            detail += f" · {open_prs} PR{'s' if open_prs != 1 else ''} open"
+        if not feature.readable:
+            detail = feature.error or "unreadable"
+        key = str(feature.root)
+        by_key[key] = feature
+        rows.append(ui.encode_row(key, f"{feature.name:<28}", progress.bar(), f"{status:<8}", detail))
+    return rows, by_key
+
+
+def _updated(feature: Feature) -> float:
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(feature.updated_at.replace("Z", "+00:00")).timestamp()
+    except (ValueError, AttributeError):
+        return 0.0
+
+
+def _header(features: list[Feature], live: dict, repo_live: dict, notice: str | None) -> str:
+    readable = [f for f in features if f.readable]
+    totals = [common.feature_progress(f) for f in readable]
+    done = sum(1 for p in totals if p.done)
+    merged = sum(p.merged for p in totals)
+    total = sum(p.total for p in totals)
+    open_count = sum(1 for f in readable if f.name in live or repo_live.get(f.name))
+    summary = (
+        f"{len(readable)} feature{'s' if len(readable) != 1 else ''} · {open_count} open · "
+        f"{done} done · {merged}/{total} merged"
+    )
+    checked = prs.last_checked(features)
+    if notice:
+        freshness = notice
+    elif checked is None:
+        freshness = "PRs never refreshed: ctrl-r"
+    else:
+        freshness = f"PRs refreshed {common.age(checked)}"
+    legend = "   ".join(f"{key}: {text}" for key, text in HOTKEYS)
+    return f"{summary}   ·   {freshness}\n{legend}"
+
+
+def _sub(action, *args, **kwargs) -> None:
+    """Run a sub-command inside the board loop: Esc returns to the board, an Abort is
+    shown and acknowledged, and the board redraws."""
+    try:
+        action(*args, **kwargs)
+    except ui.Cancelled:
+        return
+    except ui.Abort as error:
+        ui.restore_terminal()
+        print(f"\n{error}\n", file=sys.stderr)
+        ui.pause()
+
+
+def _open_urls(feature: Feature) -> None:
+    urls = [pr.url for wt in feature.worktrees if (pr := prs.from_dict(wt.pr)) and pr.url]
+    if not urls:
+        ui.warn(f"{feature.name} has no pull requests on record; refresh with ctrl-r.")
+        ui.pause()
+        return
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    if not shutil.which(opener):
+        for url in urls:
+            print(url)
+        ui.pause()
+        return
+    for url in urls:
+        subprocess.Popen([opener, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def run(config: Config) -> None:
+    notice: str | None = None
+    try:
+        prs.gh_binary()
+    except ui.Abort as error:
+        notice = str(error)
+
+    while True:
+        features = common.load_features(config)
+        live = common.live_map(features)
+        repo_live = common.repo_live_map(features)
+        rows, by_key = _rows(features, live, repo_live)
+        if not rows:
+            rows = [ui.encode_row("", "(no features yet)", "", "", "ctrl-n to start one")]
+        key, keys = ui.pick_expect(
+            rows,
+            prompt_text="feature> ",
+            header=_header(features, live, repo_live, notice),
+            preview=ui.preview_command("preview-feature"),
+            preview_size="50%",
+            expect=EXPECT,
+        )
+        selected = by_key.get(keys[0]) if keys else None
+
+        if key == "ctrl-n" or (key == "" and selected is None):
+            new.run(config)  # `new` focuses the workspace it opened, so the board is done
+            return
+        if key == "ctrl-t":
+            _sub(install_cli.run)
+            continue
+        if key == "ctrl-r":
+            try:
+                common.refresh_progress(features)
+                notice = None
+            except ui.Abort as error:
+                notice = str(error)
+                ui.warn(str(error))
+                ui.pause()
+            continue
+        if selected is None:
+            continue
+        if key == "ctrl-a":
+            _sub(add.run, config, selected)
+            continue
+        if key == "ctrl-d":
+            _sub(drop.run, config, selected)
+            continue
+        if key == "ctrl-w":
+            _sub(close.run, config, selected)
+            continue
+        if key == "ctrl-x":
+            _sub(remove.run, config, selected)
+            continue
+        if key == "ctrl-o":
+            _open_urls(selected)
+            continue
+        if key != "":
+            continue
+
+        # Enter.
+        if not selected.readable:
+            _sub(_abort, f"{selected.name} cannot be opened: {selected.error}")
+            continue
+        if selected.status == manifest.STATUS_CREATING:
+            _sub(
+                _abort,
+                f"{selected.name} was interrupted while being created. "
+                "Run 'new' with the same name to clean it up, or remove it (ctrl-x).",
+            )
+            continue
+        if common.feature_progress(selected).done:
+            ui.heading(f"{selected.name} is done: every pull request is merged")
+            if ui.confirm("Remove its worktrees and folder now?", default=True):
+                _sub(remove.run, config, selected, delete_branches_default=True)
+                continue
+            if not ui.confirm("Open it anyway?", default=False):
+                continue
+        opened = common.open_workspaces(config, selected, focus=True, workspace_id=live.get(selected.name))
+        if opened.created:
+            common.report_opened(selected, opened)
+            if opened.failures:
+                ui.pause()
+        return
+
+
+def _abort(message: str) -> None:
+    raise ui.Abort(message)

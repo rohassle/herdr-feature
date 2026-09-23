@@ -25,9 +25,15 @@ def resolve_target(config: Config, features: list[Feature], *, verb: str) -> tup
     return feature, live
 
 
-def run(config: Config) -> None:
+def run(config: Config, feature: Feature | None = None) -> None:
     features = common.load_features(config)
-    feature, live = resolve_target(config, features, verb="add worktrees to")
+    if feature is not None:
+        feature = next((f for f in features if f.root == feature.root), feature)
+        if not feature.mutable:
+            raise ui.Abort(f"{feature.name} cannot be changed right now ({common.status_word(feature, {})}).")
+        live = common.live_map(features)
+    else:
+        feature, live = resolve_target(config, features, verb="add worktrees to")
     ui.heading(f"Add worktrees to {feature.name}")
     others = [f for f in features if f is not feature]
 
