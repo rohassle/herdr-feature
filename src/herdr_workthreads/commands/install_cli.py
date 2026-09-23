@@ -1,4 +1,4 @@
-"""install-cli: put the `herdr-feature` command on PATH and optionally install the agent
+"""install-cli: put the `herdr-workthreads` command on PATH and optionally install the agent
 skill. Both are symlinks into the plugin folder, so plugin updates are picked up and
 `uninstall` only needs to remove two links."""
 
@@ -10,8 +10,8 @@ from pathlib import Path
 
 from .. import ui
 
-CLI_NAME = "herdr-feature"
-SKILL_NAME = "herdr-feature"
+CLI_NAME = "herdr-workthreads"
+SKILL_NAME = "herdr-workthreads"
 
 
 def plugin_root() -> Path:
@@ -22,11 +22,11 @@ def plugin_root() -> Path:
 
 
 def bin_dir() -> Path:
-    return Path(os.environ.get("HERDR_FEATURE_BIN_DIR", "~/.local/bin")).expanduser()
+    return Path(os.environ.get("HERDR_WORKTHREADS_BIN_DIR", "~/.local/bin")).expanduser()
 
 
 def skills_dir() -> Path:
-    return Path(os.environ.get("HERDR_FEATURE_SKILLS_DIR", "~/.claude/skills")).expanduser()
+    return Path(os.environ.get("HERDR_WORKTHREADS_SKILLS_DIR", "~/.claude/skills")).expanduser()
 
 
 @dataclass
@@ -94,7 +94,7 @@ def install(*, with_skill: bool, replace_foreign: bool) -> dict:
 def uninstall(*, with_skill: bool) -> dict:
     removed = []
     for link in [bin_dir() / CLI_NAME] + ([skills_dir() / SKILL_NAME] if with_skill else []):
-        if link.is_symlink() and "herdr-feature" in str(link.resolve()):
+        if link.is_symlink() and "herdr-workthreads" in str(link.resolve()):
             link.unlink()
             removed.append(str(link))
     return {"removed": removed}
@@ -117,7 +117,7 @@ def report(result: dict) -> None:
 
 def run(config=None) -> None:
     """Popup flow: install the CLI, then offer the skill."""
-    ui.heading("Install the herdr-feature command line")
+    ui.heading("Install the herdr-workthreads command line")
     result = install(with_skill=False, replace_foreign=False)
     report(result)
     print(file=ui.OUT)

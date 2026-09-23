@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from .helpers import SRC  # noqa: F401
-from herdr_feature.commands import install_cli
+from herdr_workthreads.commands import install_cli
 
 
 class InstallCli(unittest.TestCase):
@@ -14,14 +14,14 @@ class InstallCli(unittest.TestCase):
         base = Path(self.tmp.name)
         self.root = base / "plugin"
         (self.root / "bin").mkdir(parents=True)
-        (self.root / "bin" / "herdr-feature").write_text("#!/bin/sh\n")
-        (self.root / "skills" / "herdr-feature").mkdir(parents=True)
+        (self.root / "bin" / "herdr-workthreads").write_text("#!/bin/sh\n")
+        (self.root / "skills" / "herdr-workthreads").mkdir(parents=True)
         self.env = mock.patch.dict(
             os.environ,
             {
                 "HERDR_PLUGIN_ROOT": str(self.root),
-                "HERDR_FEATURE_BIN_DIR": str(base / "bin"),
-                "HERDR_FEATURE_SKILLS_DIR": str(base / "skills"),
+                "HERDR_WORKTHREADS_BIN_DIR": str(base / "bin"),
+                "HERDR_WORKTHREADS_SKILLS_DIR": str(base / "skills"),
                 "PATH": f"{base / 'bin'}:/usr/bin",
             },
         )
@@ -39,14 +39,14 @@ class InstallCli(unittest.TestCase):
         self.assertEqual(second["cli"]["action"], "unchanged")
         link = Path(first["cli"]["link"])
         self.assertTrue(
-            link.is_symlink() and link.resolve() == (self.root / "bin" / "herdr-feature").resolve()
+            link.is_symlink() and link.resolve() == (self.root / "bin" / "herdr-workthreads").resolve()
         )
         removed = install_cli.uninstall(with_skill=True)["removed"]
         self.assertEqual(len(removed), 2)
         self.assertFalse(link.exists())
 
     def test_foreign_file_is_skipped_unless_replace(self):
-        link = Path(os.environ["HERDR_FEATURE_BIN_DIR"]) / "herdr-feature"
+        link = Path(os.environ["HERDR_WORKTHREADS_BIN_DIR"]) / "herdr-workthreads"
         link.parent.mkdir(parents=True)
         link.write_text("not ours")
         self.assertEqual(

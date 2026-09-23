@@ -1,4 +1,4 @@
-"""The `.feature.json` manifest: one per feature root, the source of truth."""
+"""The `.workthread.json` manifest: one per thread root, the source of truth."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-MANIFEST_NAME = ".feature.json"
-VERSION = 1
+MANIFEST_NAME = ".workthread.json"
+LEGACY_MANIFEST_NAME = ".feature.json"  # written by herdr-feature (versions 1)
+VERSION = 2
 STATUS_CREATING = "creating"
 STATUS_READY = "ready"
 
@@ -44,7 +45,7 @@ class Worktree:
 
 
 @dataclass
-class Feature:
+class Thread:
     name: str
     root: Path
     status: str = STATUS_READY
@@ -88,7 +89,7 @@ class Feature:
     def to_dict(self) -> dict:
         return {
             "version": self.version,
-            "feature": self.name,
+            "thread": self.name,
             "status": self.status,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -102,13 +103,13 @@ class Feature:
             raise ManifestError(f"refusing to overwrite unreadable manifest {self.manifest_path}")
         if self.version > VERSION:
             raise ManifestError(
-                f"{self.manifest_path} was written by a newer herdr-feature (version {self.version}); "
-                "upgrade the plugin before changing this feature."
+                f"{self.manifest_path} was written by a newer herdr-workthreads (version {self.version}); "
+                "upgrade the plugin before changing this thread."
             )
         self.updated_at = now()
         self.root.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(self.to_dict(), indent=2) + "\n"
-        fd, tmp = tempfile.mkstemp(prefix=".feature.", suffix=".tmp", dir=self.root)
+        fd, tmp = tempfile.mkstemp(prefix=".thread.", suffix=".tmp", dir=self.root)
         try:
             with os.fdopen(fd, "w") as handle:
                 handle.write(payload)
@@ -121,7 +122,16 @@ class Feature:
             raise
 
 
-MIGRATIONS: dict[int, callable] = {}
+def _migrate_1_to_2(data: dict) -> dict:
+    """herdr-feature called the unit a feature; herdr-workthreads calls it a thread."""
+    data = dict(data)
+    if "thread" not in data and "feature" in data:
+        data["thread"] = data.pop("feature")
+    data["version"] = 2
+    return data
+
+
+MIGRATIONS: dict[int, callable] = {1: _migrate_1_to_2}
 
 
 def _migrate(data: dict) -> dict:
@@ -135,14 +145,15 @@ def _migrate(data: dict) -> dict:
 REQUIRED_WORKTREE_KEYS = {"repo_name", "repo_path", "folder", "branch", "branch_created", "branch_source"}
 
 
-def from_dict(data: dict, root: Path) -> Feature:
+def from_dict(data: dict, root: Path) -> Thread:
+    raw_version = data.get("version")
+    if not isinstance(raw_version, int):
+        raise ManifestError("missing integer 'version'")
     data = _migrate(dict(data))
     version = data.get("version")
-    if not isinstance(version, int):
-        raise ManifestError("missing integer 'version'")
-    name = data.get("feature")
+    name = data.get("thread")
     if not isinstance(name, str) or not name:
-        raise ManifestError("missing 'feature' name")
+        raise ManifestError("missing 'thread' name")
     status = data.get("status", STATUS_READY)
     if status not in (STATUS_CREATING, STATUS_READY):
         raise ManifestError(f"unknown status {status!r}")
@@ -169,7 +180,7 @@ def from_dict(data: dict, root: Path) -> Feature:
     workspace = data.get("workspace")
     if workspace is not None and not isinstance(workspace, dict):
         workspace = None
-    return Feature(
+    return Thread(
         name=name,
         root=root,
         status=status,
@@ -182,8 +193,16 @@ def from_dict(data: dict, root: Path) -> Feature:
     )
 
 
-def load(root: Path) -> Feature:
-    path = root / MANIFEST_NAME
+def manifest_file(root: Path) -> Path | None:
+    """The manifest in `root`: the current name, else the legacy `.feature.json`."""
+    for name in (MANIFEST_NAME, LEGACY_MANIFEST_NAME):
+        if (root / name).exists():
+            return root / name
+    return None
+
+
+def load(root: Path) -> Thread:
+    path = manifest_file(root) or root / MANIFEST_NAME
     try:
         data = json.loads(path.read_text())
     except FileNotFoundError:
@@ -192,37 +211,45 @@ def load(root: Path) -> Feature:
         raise ManifestError(f"{path}: {error}") from error
     if not isinstance(data, dict):
         raise ManifestError(f"{path}: not a JSON object")
-    return from_dict(data, root)
+    thread = from_dict(data, root)
+    if path.name == LEGACY_MANIFEST_NAME and thread.mutable:
+        # Rewrite under the new name once; the legacy file goes away.
+        thread.save()
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return thread
 
 
-def discover(features_directory: Path) -> list[Feature]:
-    """Every feature folder, readable or not (unreadable ones carry `error`)."""
-    found: list[Feature] = []
-    if not features_directory.is_dir():
+def discover(threads_directory: Path) -> list[Thread]:
+    """Every thread folder, readable or not (unreadable ones carry `error`)."""
+    found: list[Thread] = []
+    if not threads_directory.is_dir():
         return found
-    for child in sorted(features_directory.iterdir()):
-        if not child.is_dir() or not (child / MANIFEST_NAME).exists():
+    for child in sorted(threads_directory.iterdir()):
+        if not child.is_dir() or manifest_file(child) is None:
             continue
         try:
             found.append(load(child))
         except ManifestError as error:
-            found.append(Feature(name=child.name, root=child, error=str(error)))
+            found.append(Thread(name=child.name, root=child, error=str(error)))
     return found
 
 
-def branch_claims(features: list[Feature]) -> dict[tuple[str, str], str]:
-    """(repo_path, branch) -> feature name, across every readable manifest."""
+def branch_claims(threads: list[Thread]) -> dict[tuple[str, str], str]:
+    """(repo_path, branch) -> thread name, across every readable manifest."""
     claims: dict[tuple[str, str], str] = {}
-    for feature in features:
-        if not feature.readable:
+    for thread in threads:
+        if not thread.readable:
             continue
-        for wt in feature.worktrees:
-            claims.setdefault((wt.repo_path, wt.branch), feature.name)
+        for wt in thread.worktrees:
+            claims.setdefault((wt.repo_path, wt.branch), thread.name)
     return claims
 
 
-def find(features: list[Feature], name: str) -> Feature | None:
-    for feature in features:
-        if feature.name.casefold() == name.casefold():
-            return feature
+def find(threads: list[Thread], name: str) -> Thread | None:
+    for thread in threads:
+        if thread.name.casefold() == name.casefold():
+            return thread
     return None

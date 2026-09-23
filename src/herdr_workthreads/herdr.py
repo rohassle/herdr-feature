@@ -1,4 +1,4 @@
-"""Talk to the Herdr session through the `herdr` CLI, and map features to workspaces."""
+"""Talk to the Herdr session through the `herdr` CLI, and map threads to workspaces."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .manifest import Feature, Worktree
+from .manifest import Thread, Worktree
 from .ui import Abort
 
 
@@ -59,13 +59,13 @@ class Context:
 
 
 def context() -> Context:
-    raw = os.environ.get("FEATURE_INVOKER_CONTEXT") or os.environ.get("HERDR_PLUGIN_CONTEXT_JSON") or "{}"
+    raw = os.environ.get("WORKTHREADS_INVOKER_CONTEXT") or os.environ.get("HERDR_PLUGIN_CONTEXT_JSON") or "{}"
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         data = {}
     return Context(
-        workspace_id=os.environ.get("FEATURE_WORKSPACE_ID")
+        workspace_id=os.environ.get("WORKTHREADS_WORKSPACE_ID")
         or data.get("workspace_id")
         or os.environ.get("HERDR_WORKSPACE_ID"),
         workspace_cwd=data.get("workspace_cwd"),
@@ -127,7 +127,7 @@ def _checkout_path(workspace: dict) -> Path | None:
 
 def nested_workspace_ids(root: Path, all_workspaces: dict[str, dict]) -> set[str]:
     """Herdr worktree workspaces whose checkout lies inside `root`: the per-repository
-    workspaces of a feature. They are never the feature's own workspace."""
+    workspaces of a thread. They are never the thread's own workspace."""
     target = root.resolve()
     found = set()
     for workspace in all_workspaces.values():
@@ -137,8 +137,8 @@ def nested_workspace_ids(root: Path, all_workspaces: dict[str, dict]) -> set[str
     return found
 
 
-def map_live(features: list[Feature], *, heal: bool = True) -> dict[str, str]:
-    """feature name -> workspace id for every feature with a live feature workspace.
+def map_live(threads: list[Thread], *, heal: bool = True) -> dict[str, str]:
+    """thread name -> workspace id for every thread with a live thread workspace.
 
     Pane working directories are the primary signal (workspace ids change on server
     restart). The manifest hint and the workspace label are fallbacks. Matches found by
@@ -150,47 +150,47 @@ def map_live(features: list[Feature], *, heal: bool = True) -> dict[str, str]:
     all_panes = panes()
     all_workspaces = {ws["workspace_id"]: ws for ws in workspaces()}
 
-    for feature in features:
-        if not feature.readable:
+    for thread in threads:
+        if not thread.readable:
             continue
-        nested = nested_workspace_ids(feature.root, all_workspaces)
-        hits = panes_inside(feature.root, all_panes)
+        nested = nested_workspace_ids(thread.root, all_workspaces)
+        hits = panes_inside(thread.root, all_panes)
         ids = sorted({pane["workspace_id"] for pane in hits} - nested)
         if ids:
-            hinted = (feature.workspace or {}).get("id")
+            hinted = (thread.workspace or {}).get("id")
             chosen = hinted if hinted in ids else ids[0]
-            live[feature.name] = chosen
-            if heal and (feature.workspace or {}).get("id") != chosen and feature.mutable:
-                feature.remember_workspace(chosen, all_workspaces.get(chosen, {}).get("label"))
+            live[thread.name] = chosen
+            if heal and (thread.workspace or {}).get("id") != chosen and thread.mutable:
+                thread.remember_workspace(chosen, all_workspaces.get(chosen, {}).get("label"))
                 try:
-                    feature.save()
+                    thread.save()
                 except Exception:
                     pass
             continue
 
-        hint = feature.workspace or {}
+        hint = thread.workspace or {}
         hinted_id = hint.get("id")
         if hinted_id and hinted_id in all_workspaces and hinted_id not in nested:
             label = all_workspaces[hinted_id].get("label")
-            if label == hint.get("label") or label == feature.name:
-                live[feature.name] = hinted_id
+            if label == hint.get("label") or label == thread.name:
+                live[thread.name] = hinted_id
                 continue
 
         by_label = [
             ws
             for ws in all_workspaces.values()
-            if ws.get("label") == feature.name and _checkout_path(ws) is None
+            if ws.get("label") == thread.name and _checkout_path(ws) is None
         ]
         if len(by_label) == 1:
-            live[feature.name] = by_label[0]["workspace_id"]
+            live[thread.name] = by_label[0]["workspace_id"]
     return live
 
 
-def repo_workspaces(feature: Feature, all_workspaces: list[dict] | None = None) -> dict[str, str]:
-    """worktree folder -> workspace id for the feature's per-repository worktree workspaces
+def repo_workspaces(thread: Thread, all_workspaces: list[dict] | None = None) -> dict[str, str]:
+    """worktree folder -> workspace id for the thread's per-repository worktree workspaces
     that are currently open. Identity comes from Herdr's worktree provenance (the checkout
     path), which survives server restarts."""
-    if not feature.readable:
+    if not thread.readable:
         return {}
     by_checkout: dict[Path, str] = {}
     for workspace in all_workspaces if all_workspaces is not None else workspaces():
@@ -198,67 +198,67 @@ def repo_workspaces(feature: Feature, all_workspaces: list[dict] | None = None) 
         if checkout is not None:
             by_checkout.setdefault(checkout, workspace["workspace_id"])
     found: dict[str, str] = {}
-    for worktree in feature.worktrees:
-        path = _resolve(str(feature.path_of(worktree)))
+    for worktree in thread.worktrees:
+        path = _resolve(str(thread.path_of(worktree)))
         if path is not None and path in by_checkout:
             found[worktree.folder] = by_checkout[path]
     return found
 
 
-def map_repo_live(features: list[Feature]) -> dict[str, dict[str, str]]:
-    """feature name -> {worktree folder -> workspace id} for open per-repository workspaces."""
+def map_repo_live(threads: list[Thread]) -> dict[str, dict[str, str]]:
+    """thread name -> {worktree folder -> workspace id} for open per-repository workspaces."""
     all_workspaces = workspaces()
     return {
-        feature.name: found
-        for feature in features
-        if feature.readable and (found := repo_workspaces(feature, all_workspaces))
+        thread.name: found
+        for thread in threads
+        if thread.readable and (found := repo_workspaces(thread, all_workspaces))
     }
 
 
-def current_feature(features: list[Feature], ctx: Context) -> Feature | None:
-    """The feature the user invoked the action from, if any."""
-    readable = [feature for feature in features if feature.readable]
+def current_thread(threads: list[Thread], ctx: Context) -> Thread | None:
+    """The thread the user invoked the action from, if any."""
+    readable = [thread for thread in threads if thread.readable]
     if ctx.workspace_id:
         live = map_live(readable)
-        for feature in readable:
-            if live.get(feature.name) == ctx.workspace_id:
-                return feature
-        for feature in readable:
-            if ctx.workspace_id in repo_workspaces(feature).values():
-                return feature
+        for thread in readable:
+            if live.get(thread.name) == ctx.workspace_id:
+                return thread
+        for thread in readable:
+            if ctx.workspace_id in repo_workspaces(thread).values():
+                return thread
     for candidate in (ctx.workspace_cwd, ctx.focused_pane_cwd):
         cwd = _resolve(candidate)
         if cwd is None:
             continue
-        for feature in readable:
-            if cwd.is_relative_to(feature.root.resolve()):
-                return feature
+        for thread in readable:
+            if cwd.is_relative_to(thread.root.resolve()):
+                return thread
     return None
 
 
 # --- mutations ----------------------------------------------------------------
 
 
-def create_workspace(feature: Feature, *, focus: bool = True) -> str:
+def create_workspace(thread: Thread, *, focus: bool = True) -> str:
     result = call(
         "workspace",
         "create",
         "--cwd",
-        str(feature.root),
+        str(thread.root),
         "--label",
-        feature.name,
+        thread.name,
         "--focus" if focus else "--no-focus",
     )
     workspace_id = result["workspace"]["workspace_id"]
-    feature.remember_workspace(workspace_id, result["workspace"].get("label"))
+    thread.remember_workspace(workspace_id, result["workspace"].get("label"))
     return workspace_id
 
 
-def repo_workspace_label(feature: Feature, worktree: Worktree) -> str:
-    return feature.name if worktree.suffix is None else f"{feature.name}@{worktree.suffix}"
+def repo_workspace_label(thread: Thread, worktree: Worktree) -> str:
+    return thread.name if worktree.suffix is None else f"{thread.name}@{worktree.suffix}"
 
 
-def open_repo_workspace(feature: Feature, worktree: Worktree, *, focus: bool = False) -> str:
+def open_repo_workspace(thread: Thread, worktree: Worktree, *, focus: bool = False) -> str:
     """Open one worktree entry as a Herdr worktree workspace. Herdr binds it to its
     repository and indents it under the repository's workspace in the sidebar (opening
     that parent workspace first when none is open). Idempotent: an already-open checkout
@@ -269,9 +269,9 @@ def open_repo_workspace(feature: Feature, worktree: Worktree, *, focus: bool = F
         "--cwd",
         worktree.repo_path,
         "--path",
-        str(feature.path_of(worktree)),
+        str(thread.path_of(worktree)),
         "--label",
-        repo_workspace_label(feature, worktree),
+        repo_workspace_label(thread, worktree),
         "--focus" if focus else "--no-focus",
     )
     return result["workspace"]["workspace_id"]
@@ -279,20 +279,20 @@ def open_repo_workspace(feature: Feature, worktree: Worktree, *, focus: bool = F
 
 @dataclass
 class Opened:
-    workspace_id: str | None = None  # the feature workspace, when the mode has one
+    workspace_id: str | None = None  # the thread workspace, when the mode has one
     repo_workspaces: dict[str, str] = field(default_factory=dict)  # folder -> workspace id
     created: bool = False  # something new was opened
     failures: list[str] = field(default_factory=list)
 
     @property
     def any(self) -> str | None:
-        """Some workspace of the feature: the feature workspace, else the first nested one."""
+        """Some workspace of the thread: the thread workspace, else the first nested one."""
         return self.workspace_id or next(iter(self.repo_workspaces.values()), None)
 
 
-def open_feature(
+def open_thread(
     config,
-    feature: Feature,
+    thread: Thread,
     *,
     focus: bool,
     workspace_id: str | None = None,
@@ -300,23 +300,23 @@ def open_feature(
 ) -> Opened:
     """Open whatever workspaces the configured mode calls for and are not open yet.
 
-    `workspace_id` is the live feature workspace when the caller already knows it. `only`
+    `workspace_id` is the live thread workspace when the caller already knows it. `only`
     restricts the per-repository workspaces to the given entries (after `add`). Failures
-    to open a nested workspace are collected, not raised: the feature itself is fine.
+    to open a nested workspace are collected, not raised: the thread itself is fine.
     """
     opened = Opened(workspace_id=workspace_id)
-    if config.feature_workspace and opened.workspace_id is None:
-        opened.workspace_id = create_workspace(feature, focus=False)
+    if config.thread_workspace and opened.workspace_id is None:
+        opened.workspace_id = create_workspace(thread, focus=False)
         opened.created = True
     if config.repo_workspaces:
-        existing = repo_workspaces(feature)
-        wanted = only if only is not None else feature.worktrees
+        existing = repo_workspaces(thread)
+        wanted = only if only is not None else thread.worktrees
         for worktree in wanted:
             if worktree.folder in existing:
                 opened.repo_workspaces[worktree.folder] = existing[worktree.folder]
                 continue
             try:
-                opened.repo_workspaces[worktree.folder] = open_repo_workspace(feature, worktree)
+                opened.repo_workspaces[worktree.folder] = open_repo_workspace(thread, worktree)
                 opened.created = True
             except HerdrError as error:
                 opened.failures.append(f"{worktree.folder}: {error.code}: {error.message}")
@@ -328,9 +328,9 @@ def open_feature(
     return opened
 
 
-def close_repo_workspaces(feature: Feature, worktrees: list[Worktree]) -> list[str]:
+def close_repo_workspaces(thread: Thread, worktrees: list[Worktree]) -> list[str]:
     """Close the per-repository workspaces of the given entries. Returns the closed ids."""
-    open_ids = repo_workspaces(feature)
+    open_ids = repo_workspaces(thread)
     closed = []
     for worktree in worktrees:
         workspace_id = open_ids.get(worktree.folder)

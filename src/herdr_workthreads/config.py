@@ -10,17 +10,18 @@ from pathlib import Path
 
 from .ui import Abort, confirm, warn
 
-DEFAULT_FEATURES_DIRECTORY = "~/.herdr/features"
-KNOWN_KEYS = {"repo_directories", "repos", "features_directory", "branch_prefix", "workspaces"}
+DEFAULT_THREADS_DIRECTORY = "~/.herdr/workthreads"
+KNOWN_KEYS = {"repo_directories", "repos", "threads_directory", "branch_prefix", "workspaces"}
+LEGACY_KEYS = {"features_directory": "threads_directory"}  # herdr-feature names
 
-# Which Herdr workspaces a feature gets (see docs/adr/0007).
-WORKSPACES_FEATURE = "feature"  # one flat workspace rooted at the feature folder
+# Which Herdr workspaces a thread gets (see docs/adr/0007).
+WORKSPACES_THREAD = "thread"  # one flat workspace rooted at the thread folder
 WORKSPACES_REPOS = "repos"  # one worktree workspace per entry, nested under its repository
 WORKSPACES_BOTH = "both"
-WORKSPACE_MODES = (WORKSPACES_FEATURE, WORKSPACES_REPOS, WORKSPACES_BOTH)
+WORKSPACE_MODES = (WORKSPACES_THREAD, WORKSPACES_REPOS, WORKSPACES_BOTH)
 
-TEMPLATE = """# herdr-feature configuration
-# Location: herdr plugin config-dir feature
+TEMPLATE = """# herdr-workthreads configuration
+# Location: herdr plugin config-dir workthreads
 
 # Folders scanned one level deep for git repositories.
 repo_directories = ["~/code"]
@@ -28,18 +29,18 @@ repo_directories = ["~/code"]
 # Extra repositories anywhere on disk.
 repos = []
 
-# Where feature roots are created. Each feature is a folder holding one worktree per
+# Where thread roots are created. Each thread is a folder holding one worktree per
 # repository; closing a workspace never deletes anything here.
-features_directory = "~/.herdr/features"
+threads_directory = "~/.herdr/workthreads"
 
 # Prepended to every branch the plugin creates. May contain '/', e.g. "rh/" or "feat/".
 branch_prefix = ""
 
-# Which Herdr workspaces a feature gets:
-#   "feature"  one workspace rooted at the feature folder (all repositories side by side)
+# Which Herdr workspaces a thread gets:
+#   "thread"  one workspace rooted at the thread folder (all repositories side by side)
 #   "repos"    one workspace per worktree, nested in the sidebar under its repository
-#   "both"     the feature workspace plus the nested per-repository workspaces
-workspaces = "feature"
+#   "both"     the thread workspace plus the nested per-repository workspaces
+workspaces = "thread"
 """
 
 
@@ -48,14 +49,14 @@ class Config:
     path: Path
     repo_directories: list[Path] = field(default_factory=list)
     repos: list[Path] = field(default_factory=list)
-    features_directory: Path = Path(DEFAULT_FEATURES_DIRECTORY).expanduser()
+    threads_directory: Path = Path(DEFAULT_THREADS_DIRECTORY).expanduser()
     branch_prefix: str = ""
-    workspaces: str = WORKSPACES_FEATURE
+    workspaces: str = WORKSPACES_THREAD
     warnings: list[str] = field(default_factory=list)
 
     @property
-    def feature_workspace(self) -> bool:
-        return self.workspaces in (WORKSPACES_FEATURE, WORKSPACES_BOTH)
+    def thread_workspace(self) -> bool:
+        return self.workspaces in (WORKSPACES_THREAD, WORKSPACES_BOTH)
 
     @property
     def repo_workspaces(self) -> bool:
@@ -63,12 +64,12 @@ class Config:
 
 
 def config_path() -> Path:
-    override = os.environ.get("HERDR_FEATURE_CONFIG")
+    override = os.environ.get("HERDR_WORKTHREADS_CONFIG")
     if override:
         return Path(override).expanduser()
     base = os.environ.get("HERDR_PLUGIN_CONFIG_DIR")
     if not base:
-        base = str(Path.home() / ".config/herdr/plugins/config/feature")
+        base = str(Path.home() / ".config/herdr/plugins/config/workthreads")
     return Path(base) / "config.toml"
 
 
@@ -97,6 +98,11 @@ def parse_config(raw: dict, path: Path) -> Config:
     """Validate a parsed TOML table. Fatal problems raise Abort; soft ones are warnings."""
     config = Config(path=path)
 
+    raw = dict(raw)
+    for old, new in LEGACY_KEYS.items():
+        if old in raw:
+            config.warnings.append(f"{path.name}: '{old}' is now '{new}' (still honoured; rename it)")
+            raw.setdefault(new, raw.pop(old))
     for key in raw:
         if key not in KNOWN_KEYS:
             config.warnings.append(f"unknown key '{key}' in {path.name} (ignored)")
@@ -121,22 +127,22 @@ def parse_config(raw: dict, path: Path) -> Config:
             continue
         config.repos.append(repo)
 
-    features_directory = raw.get("features_directory", DEFAULT_FEATURES_DIRECTORY)
-    if not isinstance(features_directory, str) or not features_directory.strip():
-        raise Abort(f"{path}: features_directory must be a non-empty string.")
-    config.features_directory = _expand(features_directory)
+    threads_directory = raw.get("threads_directory", DEFAULT_THREADS_DIRECTORY)
+    if not isinstance(threads_directory, str) or not threads_directory.strip():
+        raise Abort(f"{path}: threads_directory must be a non-empty string.")
+    config.threads_directory = _expand(threads_directory)
     for folder in config.repo_directories:
-        if config.features_directory.resolve() == folder.resolve():
+        if config.threads_directory.resolve() == folder.resolve():
             raise Abort(
-                f"{path}: features_directory {features_directory} is also listed in "
-                "repo_directories; features must live somewhere else."
+                f"{path}: threads_directory {threads_directory} is also listed in "
+                "repo_directories; threads must live somewhere else."
             )
     for repo in config.repos + [
         child for folder in config.repo_directories for child in folder.iterdir() if child.is_dir()
     ]:
-        if (repo / ".git").exists() and _inside(config.features_directory, repo):
+        if (repo / ".git").exists() and _inside(config.threads_directory, repo):
             raise Abort(
-                f"{path}: features_directory {features_directory} lies inside the repository "
+                f"{path}: threads_directory {threads_directory} lies inside the repository "
                 f"{repo}; pick a folder outside every repository."
             )
 
@@ -155,11 +161,14 @@ def parse_config(raw: dict, path: Path) -> Config:
         if prefix[-1] not in "/-_.":
             config.warnings.append(
                 f"branch_prefix {prefix!r} does not end in '/', '-', '_' or '.'; "
-                f"branches will look like {prefix}feature-name"
+                f"branches will look like {prefix}thread-name"
             )
     config.branch_prefix = prefix
 
-    mode = raw.get("workspaces", WORKSPACES_FEATURE)
+    mode = raw.get("workspaces", WORKSPACES_THREAD)
+    if mode == "feature":  # herdr-feature spelling
+        config.warnings.append(f'{path.name}: workspaces = "feature" is now "thread" (still honoured)')
+        mode = WORKSPACES_THREAD
     if mode not in WORKSPACE_MODES:
         raise Abort(f"{path}: workspaces must be one of {', '.join(WORKSPACE_MODES)}; got {mode!r}.")
     config.workspaces = mode

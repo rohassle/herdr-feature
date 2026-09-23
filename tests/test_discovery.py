@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 
 from .helpers import SRC, git, make_repo  # noqa: F401
-from herdr_feature import discovery
-from herdr_feature.config import Config
+from herdr_workthreads import discovery
+from herdr_workthreads.config import Config
 
 
 class Scanner(unittest.TestCase):

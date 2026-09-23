@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .config import Config
 
-SKIP_NAMES = {"worktrees", "features"}
+SKIP_NAMES = {"worktrees", "threads"}
 
 
 @dataclass(frozen=True, order=True)

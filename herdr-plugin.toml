@@ -1,8 +1,8 @@
-id = "feature"
-name = "Feature Workspaces"
+id = "workthreads"
+name = "Work Threads"
 version = "0.1.0"
 min_herdr_version = "0.9.0"
-description = "Feature workspaces: Git worktrees from any number of repositories, a board with pull request progress per feature."
+description = "Thread workspaces: Git worktrees from any number of repositories, a board with pull request progress per thread."
 platforms = ["macos", "linux"]
 
 # Every action runs the same shim, which reads HERDR_PLUGIN_ACTION_ID and opens the
@@ -11,63 +11,63 @@ platforms = ["macos", "linux"]
 
 [[actions]]
 id = "menu"
-title = "Feature: board"
-description = "Every feature with its pull request progress. Enter opens; hotkeys run the other commands."
+title = "Thread: board"
+description = "Every thread with its pull request progress. Enter opens; hotkeys run the other commands."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[actions]]
 id = "new"
-title = "Feature: new"
-description = "Create a feature: pick repositories, create a worktree in each, open a workspace."
+title = "Thread: new"
+description = "Create a thread: pick repositories, create a worktree in each, open a workspace."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[actions]]
 id = "add"
-title = "Feature: add worktrees"
-description = "Add worktrees from more repositories to the current feature."
+title = "Thread: add worktrees"
+description = "Add worktrees from more repositories to the current thread."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[actions]]
 id = "open"
-title = "Feature: open"
-description = "Focus or reopen the workspace of an existing feature."
+title = "Thread: open"
+description = "Focus or reopen the workspace of an existing thread."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[actions]]
 id = "close"
-title = "Feature: close workspaces"
-description = "Close a feature's Herdr workspaces. Worktrees, folder and branches are kept."
+title = "Thread: close workspaces"
+description = "Close a thread's Herdr workspaces. Worktrees, folder and branches are kept."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[actions]]
 id = "drop"
-title = "Feature: drop worktrees"
-description = "Remove individual worktrees from the current feature."
+title = "Thread: drop worktrees"
+description = "Remove individual worktrees from the current thread."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[actions]]
 id = "remove"
-title = "Feature: remove"
-description = "Remove a feature: all of its worktrees, its folder, and optionally its branches."
+title = "Thread: remove"
+description = "Remove a thread: all of its worktrees, its folder, and optionally its branches."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[actions]]
 id = "install-cli"
-title = "Feature: install command line"
-description = "Symlink the herdr-feature command into ~/.local/bin and optionally install the agent skill."
+title = "Thread: install command line"
+description = "Symlink the herdr-workthreads command into ~/.local/bin and optionally install the agent skill."
 contexts = ["workspace", "pane", "global"]
 command = ["sh", "bin/action.sh"]
 
 [[panes]]
 id = "ui"
-title = "Feature"
+title = "Thread"
 placement = "popup"
 width = "85%"
 height = "70%"

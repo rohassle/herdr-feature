@@ -1,8 +1,8 @@
 """GitHub pull requests per worktree, looked up with the `gh` CLI.
 
-A worktree is done when its pull request is merged; a feature is done when every
+A worktree is done when its pull request is merged; a thread is done when every
 worktree is. GitHub access is a requirement, not an option (ADR 0008): without `gh`
-the board still lists and opens features, but progress reads "unknown".
+the board still lists and opens threads, but progress reads "unknown".
 
 Lookups happen only on an explicit refresh and are cached in the manifest as each
 worktree's `pr` object, so opening the board never touches the network.
@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .manifest import Feature, Worktree, now
+from .manifest import Thread, Worktree, now
 from .ui import Abort
 
 GH_CANDIDATES = ("/opt/homebrew/bin/gh", "/usr/local/bin/gh", "~/.local/bin/gh")
@@ -32,10 +32,10 @@ STATE_CLOSED = "CLOSED"
 
 
 def gh_binary() -> str:
-    override = os.environ.get("HERDR_FEATURE_GH")
+    override = os.environ.get("HERDR_WORKTHREADS_GH")
     if override:
         if not os.access(override, os.X_OK):
-            raise Abort(f"HERDR_FEATURE_GH={override} is not executable.")
+            raise Abort(f"HERDR_WORKTHREADS_GH={override} is not executable.")
         return override
     found = shutil.which("gh")
     if found:
@@ -140,27 +140,27 @@ def lookup(path: Path, branch: str) -> PullRequest:
 
 @dataclass
 class LookupResult:
-    feature: Feature
+    thread: Thread
     worktree: Worktree
     pr: PullRequest
 
 
 def lookup_all(
-    targets: Iterable[tuple[Feature, Worktree]],
+    targets: Iterable[tuple[Thread, Worktree]],
     *,
     on_done: Callable[[LookupResult], None] | None = None,
     workers: int = 6,
 ) -> list[LookupResult]:
-    """Look up every (feature, worktree) in parallel and store the result on the entry.
-    Manifests are not saved here; callers save once per feature."""
+    """Look up every (thread, worktree) in parallel and store the result on the entry.
+    Manifests are not saved here; callers save once per thread."""
     targets = list(targets)
     results: list[LookupResult] = []
     if not targets:
         return results
 
-    def one(pair: tuple[Feature, Worktree]) -> LookupResult:
-        feature, worktree = pair
-        return LookupResult(feature, worktree, lookup(feature.path_of(worktree), worktree.branch))
+    def one(pair: tuple[Thread, Worktree]) -> LookupResult:
+        thread, worktree = pair
+        return LookupResult(thread, worktree, lookup(thread.path_of(worktree), worktree.branch))
 
     with ThreadPoolExecutor(max_workers=min(workers, len(targets))) as pool:
         for outcome in pool.map(one, targets):
@@ -172,30 +172,28 @@ def lookup_all(
 
 
 def refresh(
-    features: list[Feature], *, on_done: Callable[[LookupResult], None] | None = None
+    threads: list[Thread], *, on_done: Callable[[LookupResult], None] | None = None
 ) -> list[LookupResult]:
-    """Refresh the pull request of every worktree of the given features and save the
+    """Refresh the pull request of every worktree of the given threads and save the
     manifests. Requires a working, logged-in gh (Abort otherwise)."""
     check_auth()
-    targets = [
-        (feature, worktree) for feature in features if feature.mutable for worktree in feature.worktrees
-    ]
+    targets = [(thread, worktree) for thread in threads if thread.mutable for worktree in thread.worktrees]
     results = lookup_all(targets, on_done=on_done)
-    for feature in {result.feature.name: result.feature for result in results}.values():
+    for thread in {result.thread.name: result.thread for result in results}.values():
         try:
-            feature.save()
+            thread.save()
         except Exception:  # the cache is best effort; the board shows what it has
             pass
     return results
 
 
-def last_checked(features: Iterable[Feature]) -> str | None:
+def last_checked(threads: Iterable[Thread]) -> str | None:
     """Oldest `checked_at` across every worktree that has one, or None when never refreshed."""
     stamps = [
         worktree.pr.get("checked_at")
-        for feature in features
-        if feature.readable
-        for worktree in feature.worktrees
+        for thread in threads
+        if thread.readable
+        for worktree in thread.worktrees
         if worktree.pr and worktree.pr.get("checked_at")
     ]
     return min(stamps) if stamps else None

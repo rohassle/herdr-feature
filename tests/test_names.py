@@ -1,7 +1,7 @@
 import unittest
 
 from .helpers import SRC  # noqa: F401  (sets sys.path)
-from herdr_feature import names
+from herdr_workthreads import names
 
 
 class NameRules(unittest.TestCase):

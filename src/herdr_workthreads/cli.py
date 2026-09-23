@@ -1,13 +1,13 @@
 """Non-interactive command line, for agents and scripts.
 
-    herdr-feature new --name X --repo a --repo b [--suffix a=api] [--yes] [--json]
-    herdr-feature add --feature X --repo a [--suffix a=api] [--yes] [--open]
-    herdr-feature list [--json]
-    herdr-feature open --feature X [--focus]
-    herdr-feature close --feature X [--force] --yes
-    herdr-feature refresh [--feature X] [--json]
-    herdr-feature drop --feature X --worktree a@api [--force] --yes
-    herdr-feature remove --feature X [--force] [--delete-branches] --yes
+    herdr-workthreads new --name X --repo a --repo b [--suffix a=api] [--yes] [--json]
+    herdr-workthreads add --thread X --repo a [--suffix a=api] [--yes] [--open]
+    herdr-workthreads list [--json]
+    herdr-workthreads open --thread X [--focus]
+    herdr-workthreads close --thread X [--force] --yes
+    herdr-workthreads refresh [--thread X] [--json]
+    herdr-workthreads drop --thread X --worktree a@api [--force] --yes
+    herdr-workthreads remove --thread X [--force] [--delete-branches] --yes
 
 Without --yes, new/add/drop/remove only print what they would do (a dry run). Progress
 lines go to stderr; with --json the result object goes to stdout.
@@ -35,35 +35,35 @@ class Result:
 # --- helpers ------------------------------------------------------------------
 
 
-def _feature_dict(
-    feature: manifest.Feature,
+def _thread_dict(
+    thread: manifest.Thread,
     live: dict[str, str],
     *,
     states: bool,
     repo_live: dict[str, dict[str, str]] | None = None,
 ) -> dict:
-    nested = (repo_live or {}).get(feature.name, {})
-    progress = common.feature_progress(feature)
+    nested = (repo_live or {}).get(thread.name, {})
+    progress = common.thread_progress(thread)
     data = {
-        "feature": feature.name,
-        "root": str(feature.root),
-        "status": common.status_word(feature, live, repo_live),
+        "thread": thread.name,
+        "root": str(thread.root),
+        "status": common.status_word(thread, live, repo_live),
         "done": progress.done,
         "progress": {"merged": progress.merged, "total": progress.total, "unknown": progress.unknown},
-        "workspace_id": live.get(feature.name),
-        "branch_prefix": feature.branch_prefix,
+        "workspace_id": live.get(thread.name),
+        "branch_prefix": thread.branch_prefix,
         "worktrees": [],
     }
-    if not feature.readable:
-        data["error"] = feature.error
+    if not thread.readable:
+        data["error"] = thread.error
         return data
-    for wt in feature.worktrees:
+    for wt in thread.worktrees:
         wp = common.worktree_progress(wt)
         entry = {
             "repo_name": wt.repo_name,
             "repo_path": wt.repo_path,
             "folder": wt.folder,
-            "path": str(feature.path_of(wt)),
+            "path": str(thread.path_of(wt)),
             "branch": wt.branch,
             "branch_created": wt.branch_created,
             "branch_source": wt.branch_source,
@@ -73,7 +73,7 @@ def _feature_dict(
             "pr": wt.pr,
         }
         if states:
-            state = gitops.worktree_state(feature.path_of(wt))
+            state = gitops.worktree_state(thread.path_of(wt))
             entry["state"] = state.kind
             entry["state_detail"] = state.detail
         data["worktrees"].append(entry)
@@ -121,15 +121,15 @@ def _parse_suffixes(values: list[str]) -> dict[str, str]:
     return result
 
 
-def _find_feature(features: list[manifest.Feature], name: str | None) -> manifest.Feature:
+def _find_thread(threads: list[manifest.Thread], name: str | None) -> manifest.Thread:
     if name:
-        feature = manifest.find(features, name)
-        if feature is None:
-            raise ui.Abort(f"no feature named {name!r} under the features directory.")
-        return feature
-    current = herdr.current_feature(features, herdr.context())
+        thread = manifest.find(threads, name)
+        if thread is None:
+            raise ui.Abort(f"no thread named {name!r} under the threads directory.")
+        return thread
+    current = herdr.current_thread(threads, herdr.context())
     if current is None:
-        raise ui.Abort("not inside a feature workspace; pass --feature NAME.")
+        raise ui.Abort("not inside a thread workspace; pass --thread NAME.")
     return current
 
 
@@ -157,24 +157,24 @@ def _emit(args: argparse.Namespace, payload: dict, human: str) -> None:
 
 
 def cmd_list(args, config: Config) -> int:
-    features = common.load_features(config)
-    live = common.live_map(features)
-    repo_live = common.repo_live_map(features)
-    payload = [_feature_dict(f, live, states=not args.no_states, repo_live=repo_live) for f in features]
+    threads = common.load_threads(config)
+    live = common.live_map(threads)
+    repo_live = common.repo_live_map(threads)
+    payload = [_thread_dict(f, live, states=not args.no_states, repo_live=repo_live) for f in threads]
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
-    if not features:
-        print(f"no features under {config.features_directory}")
+    if not threads:
+        print(f"no threads under {config.threads_directory}")
         return 0
     for item in payload:
         ws = item["workspace_id"] or "-"
         progress = item.get("progress") or {}
-        bar = common.FeatureProgress(
+        bar = common.ThreadProgress(
             progress.get("merged", 0), progress.get("total", 0), progress.get("unknown", 0)
         ).bar()
         status = "done" if item.get("done") else item["status"]
-        print(f"{item['feature']:<32} {status:<14} {ws:<6} {bar}")
+        print(f"{item['thread']:<32} {status:<14} {ws:<6} {bar}")
         for wt in item["worktrees"]:
             state = wt.get("state_detail", "")
             nested = wt.get("workspace_id") or "-"
@@ -185,9 +185,9 @@ def cmd_list(args, config: Config) -> int:
 
 
 def _create(
-    args, config: Config, feature: manifest.Feature, features_other: list, requests, *, is_new: bool
+    args, config: Config, thread: manifest.Thread, threads_other: list, requests, *, is_new: bool
 ) -> list[common.Planned]:
-    planned = common.preflight(config, feature, requests, features_other)
+    planned = common.preflight(config, thread, requests, threads_other)
     common.show_plan(planned)
     return planned
 
@@ -195,12 +195,12 @@ def _create(
 def cmd_new(args, config: Config) -> int:
     suffixes = _parse_suffixes(args.suffix)
     ui.set_noninteractive(_answers(args, suffixes))
-    features = common.load_features(config)
+    threads = common.load_threads(config)
     problem = names.validate_name(args.name)
     if problem:
         raise ui.Abort(problem)
-    existing = manifest.find(features, args.name)
-    root = config.features_directory / args.name
+    existing = manifest.find(threads, args.name)
+    root = config.threads_directory / args.name
     repos = _resolve_repos(config, args.repo)
     if not repos:
         raise ui.Abort("pass at least one --repo.")
@@ -215,19 +215,19 @@ def cmd_new(args, config: Config) -> int:
                     f"{existing.name} was interrupted while being created; rerun with --yes to clean it up first."
                 )
             common.cleanup_interrupted(existing)
-            features = [f for f in features if f is not existing]
+            threads = [f for f in threads if f is not existing]
         elif existing is not None:
-            raise ui.Abort(f"a feature named {existing.name!r} already exists; use add or open.")
+            raise ui.Abort(f"a thread named {existing.name!r} already exists; use add or open.")
         elif root.exists():
-            raise ui.Abort(f"{root} already exists but is not a known feature.")
+            raise ui.Abort(f"{root} already exists but is not a known thread.")
 
-        feature = manifest.Feature(name=args.name, root=root, branch_prefix=config.branch_prefix)
+        thread = manifest.Thread(name=args.name, root=root, branch_prefix=config.branch_prefix)
         requests = [common.Request(repo, suffixes.get(repo.name.casefold())) for repo in repos]
-        planned = _create(args, config, feature, features, requests, is_new=True)
+        planned = _create(args, config, thread, threads, requests, is_new=True)
         if not args.yes:
             payload = {
                 "dry_run": True,
-                "feature": args.name,
+                "thread": args.name,
                 "root": str(root),
                 "plan": [
                     {"repo": p.repo.name, "folder": p.folder, "branch": p.branch, "how": p.plan.source}
@@ -236,31 +236,31 @@ def cmd_new(args, config: Config) -> int:
             }
             _emit(args, payload, "dry run only; rerun with --yes to create.")
             return 0
-        config.features_directory.mkdir(parents=True, exist_ok=True)
+        config.threads_directory.mkdir(parents=True, exist_ok=True)
         root.mkdir()
-        common.execute(feature, planned, is_new=True)
+        common.execute(thread, planned, is_new=True)
 
     opened = herdr.Opened()
     if not args.no_workspace:
         try:
-            opened = common.open_workspaces(config, feature, focus=args.focus)
+            opened = common.open_workspaces(config, thread, focus=args.focus)
         except herdr.HerdrError as error:
-            ui.warn(f"feature created but its workspace could not be opened: {error}")
+            ui.warn(f"thread created but its workspace could not be opened: {error}")
         for failure in opened.failures:
             ui.warn(f"could not open a worktree workspace for {failure}")
-    live, repo_live = _opened_maps(feature, opened)
-    payload = _feature_dict(feature, live, states=False, repo_live=repo_live)
+    live, repo_live = _opened_maps(thread, opened)
+    payload = _thread_dict(thread, live, states=False, repo_live=repo_live)
     _emit(
         args,
         payload,
-        f"created {feature.name} with {len(planned)} worktree(s) at {root}" + _opened_summary(opened),
+        f"created {thread.name} with {len(planned)} worktree(s) at {root}" + _opened_summary(opened),
     )
     return 0
 
 
-def _opened_maps(feature: manifest.Feature, opened: herdr.Opened) -> tuple[dict, dict]:
-    live = {feature.name: opened.workspace_id} if opened.workspace_id else {}
-    repo_live = {feature.name: opened.repo_workspaces} if opened.repo_workspaces else {}
+def _opened_maps(thread: manifest.Thread, opened: herdr.Opened) -> tuple[dict, dict]:
+    live = {thread.name: opened.workspace_id} if opened.workspace_id else {}
+    repo_live = {thread.name: opened.repo_workspaces} if opened.repo_workspaces else {}
     return live, repo_live
 
 
@@ -276,32 +276,32 @@ def _opened_summary(opened: herdr.Opened) -> str:
 def cmd_add(args, config: Config) -> int:
     suffixes = _parse_suffixes(args.suffix)
     ui.set_noninteractive(_answers(args, suffixes))
-    features = common.load_features(config)
-    feature = _find_feature(features, args.feature)
-    if not feature.mutable:
-        raise ui.Abort(f"{feature.name} cannot be changed right now ({common.status_word(feature, {})}).")
+    threads = common.load_threads(config)
+    thread = _find_thread(threads, args.thread)
+    if not thread.mutable:
+        raise ui.Abort(f"{thread.name} cannot be changed right now ({common.status_word(thread, {})}).")
     repos = _resolve_repos(config, args.repo)
     if not repos:
         raise ui.Abort("pass at least one --repo.")
     requests = []
     for repo in repos:
         suffix = suffixes.get(repo.name.casefold())
-        already = feature.worktrees_for(repo.path)
+        already = thread.worktrees_for(repo.path)
         if already and not suffix:
             raise ui.Abort(
-                f"{repo.name} is already in {feature.name} as {', '.join(wt.folder for wt in already)}; "
+                f"{repo.name} is already in {thread.name} as {', '.join(wt.folder for wt in already)}; "
                 f"pass --suffix {repo.name}=NAME to add a second worktree."
             )
         if suffix and suffix in {wt.suffix for wt in already}:
-            raise ui.Abort(f"{repo.name}@{suffix} already exists in {feature.name}.")
+            raise ui.Abort(f"{repo.name}@{suffix} already exists in {thread.name}.")
         requests.append(common.Request(repo, suffix))
-    others = [f for f in features if f is not feature]
+    others = [f for f in threads if f is not thread]
     with mutation_lock():
-        planned = _create(args, config, feature, others, requests, is_new=False)
+        planned = _create(args, config, thread, others, requests, is_new=False)
         if not args.yes:
             payload = {
                 "dry_run": True,
-                "feature": feature.name,
+                "thread": thread.name,
                 "plan": [
                     {"repo": p.repo.name, "folder": p.folder, "branch": p.branch, "how": p.plan.source}
                     for p in planned
@@ -309,44 +309,44 @@ def cmd_add(args, config: Config) -> int:
             }
             _emit(args, payload, "dry run only; rerun with --yes to add.")
             return 0
-        added = common.execute(feature, planned, is_new=False)
-    live = common.live_map([feature])
-    repo_live = common.repo_live_map([feature])
-    is_open = feature.name in live or bool(repo_live.get(feature.name))
+        added = common.execute(thread, planned, is_new=False)
+    live = common.live_map([thread])
+    repo_live = common.repo_live_map([thread])
+    is_open = thread.name in live or bool(repo_live.get(thread.name))
     if args.open or is_open:
-        # An open feature gets nested workspaces for the new entries (when configured);
+        # An open thread gets nested workspaces for the new entries (when configured);
         # --open also creates whatever the mode calls for when nothing is open yet.
         opened = common.open_workspaces(
             config,
-            feature,
+            thread,
             focus=args.focus,
-            workspace_id=live.get(feature.name),
+            workspace_id=live.get(thread.name),
             only=added if is_open and not args.open else None,
         )
         for failure in opened.failures:
             ui.warn(f"could not open a worktree workspace for {failure}")
-        live, repo_live = _opened_maps(feature, opened)
+        live, repo_live = _opened_maps(thread, opened)
     _emit(
         args,
-        _feature_dict(feature, live, states=False, repo_live=repo_live),
-        f"added {len(planned)} worktree(s) to {feature.name}",
+        _thread_dict(thread, live, states=False, repo_live=repo_live),
+        f"added {len(planned)} worktree(s) to {thread.name}",
     )
     return 0
 
 
 def cmd_open(args, config: Config) -> int:
     ui.set_noninteractive({})
-    features = common.load_features(config)
-    feature = _find_feature(features, args.feature)
-    if not feature.readable:
-        raise ui.Abort(f"{feature.name} is unreadable: {feature.error}")
-    live = common.live_map(features)
-    opened = common.open_workspaces(config, feature, focus=args.focus, workspace_id=live.get(feature.name))
+    threads = common.load_threads(config)
+    thread = _find_thread(threads, args.thread)
+    if not thread.readable:
+        raise ui.Abort(f"{thread.name} is unreadable: {thread.error}")
+    live = common.live_map(threads)
+    opened = common.open_workspaces(config, thread, focus=args.focus, workspace_id=live.get(thread.name))
     for failure in opened.failures:
         ui.warn(f"could not open a worktree workspace for {failure}")
     payload = {
-        "feature": feature.name,
-        "root": str(feature.root),
+        "thread": thread.name,
+        "root": str(thread.root),
         "workspace_id": opened.workspace_id,
         "repo_workspaces": opened.repo_workspaces,
         "created": opened.created,
@@ -354,25 +354,25 @@ def cmd_open(args, config: Config) -> int:
     _emit(
         args,
         payload,
-        f"{feature.name}: workspace {opened.any or '-'}" + (" (created)" if opened.created else ""),
+        f"{thread.name}: workspace {opened.any or '-'}" + (" (created)" if opened.created else ""),
     )
     return 0
 
 
 def cmd_close(args, config: Config) -> int:
     ui.set_noninteractive(_answers(args))
-    features = common.load_features(config)
-    feature = _find_feature(features, args.feature)
-    live = common.live_map(features)
-    repo_live = common.repo_live_map(features)
-    ids = common.feature_workspace_ids(feature, live, repo_live)
+    threads = common.load_threads(config)
+    thread = _find_thread(threads, args.thread)
+    live = common.live_map(threads)
+    repo_live = common.repo_live_map(threads)
+    ids = common.thread_workspace_ids(thread, live, repo_live)
     payload = {
-        "feature": feature.name,
-        "workspace_id": live.get(feature.name),
-        "repo_workspaces": repo_live.get(feature.name, {}),
+        "thread": thread.name,
+        "workspace_id": live.get(thread.name),
+        "repo_workspaces": repo_live.get(thread.name, {}),
     }
     if not ids:
-        _emit(args, {**payload, "closed": []}, f"{feature.name} has no open workspace")
+        _emit(args, {**payload, "closed": []}, f"{thread.name} has no open workspace")
         return 0
     if not args.yes:
         _emit(
@@ -384,48 +384,48 @@ def cmd_close(args, config: Config) -> int:
     busy = herdr.busy_panes(*ids)
     if busy and not args.force:
         raise ui.Abort(
-            f"the feature's workspaces have {len(busy)} agent(s) working or waiting; pass --force to close them anyway."
+            f"the thread's workspaces have {len(busy)} agent(s) working or waiting; pass --force to close them anyway."
         )
-    closed = common.close_feature_workspaces(feature, live, repo_live)
+    closed = common.close_thread_workspaces(thread, live, repo_live)
     for workspace_id in closed:
         ui.ok(f"closed workspace {workspace_id}")
     _emit(
         args,
         {**payload, "closed": closed},
-        f"closed {len(closed)} workspace(s) of {feature.name}; files kept",
+        f"closed {len(closed)} workspace(s) of {thread.name}; files kept",
     )
     return 0
 
 
 def cmd_refresh(args, config: Config) -> int:
     ui.set_noninteractive({})
-    features = common.load_features(config)
-    if args.feature:
-        features = [_find_feature(features, args.feature)]
+    threads = common.load_threads(config)
+    if args.thread:
+        threads = [_find_thread(threads, args.thread)]
     prs.gh_binary()
-    common.refresh_progress(features)
-    live = common.live_map(features)
-    repo_live = common.repo_live_map(features)
-    payload = [_feature_dict(f, live, states=False, repo_live=repo_live) for f in features]
+    common.refresh_progress(threads)
+    live = common.live_map(threads)
+    repo_live = common.repo_live_map(threads)
+    payload = [_thread_dict(f, live, states=False, repo_live=repo_live) for f in threads]
     done = sum(1 for item in payload if item.get("done"))
-    _emit(args, payload, f"refreshed {len(payload)} feature(s); {done} done")
+    _emit(args, payload, f"refreshed {len(payload)} thread(s); {done} done")
     return 0
 
 
 def cmd_drop(args, config: Config) -> int:
     ui.set_noninteractive(_answers(args))
-    features = common.load_features(config)
-    feature = _find_feature(features, args.feature)
-    if not feature.mutable:
-        raise ui.Abort(f"{feature.name} cannot be changed right now.")
+    threads = common.load_threads(config)
+    thread = _find_thread(threads, args.thread)
+    if not thread.mutable:
+        raise ui.Abort(f"{thread.name} cannot be changed right now.")
     wanted = set(args.worktree)
-    chosen = [wt for wt in feature.worktrees if wt.folder in wanted or wt.repo_name in wanted]
+    chosen = [wt for wt in thread.worktrees if wt.folder in wanted or wt.repo_name in wanted]
     missing = wanted - {wt.folder for wt in chosen} - {wt.repo_name for wt in chosen}
     if missing:
         raise ui.Abort(
-            f"not in {feature.name}: {', '.join(sorted(missing))}. Folders: {', '.join(sorted(feature.folders()))}"
+            f"not in {thread.name}: {', '.join(sorted(missing))}. Folders: {', '.join(sorted(thread.folders()))}"
         )
-    states = {wt.folder: gitops.worktree_state(feature.path_of(wt)) for wt in chosen}
+    states = {wt.folder: gitops.worktree_state(thread.path_of(wt)) for wt in chosen}
     careful = [wt for wt in chosen if states[wt.folder].needs_care]
     if careful and not args.force:
         detail = "; ".join(f"{wt.folder}: {states[wt.folder].detail}" for wt in careful)
@@ -435,47 +435,47 @@ def cmd_drop(args, config: Config) -> int:
     if not args.yes:
         payload = {
             "dry_run": True,
-            "feature": feature.name,
+            "thread": thread.name,
             "drop": [{"folder": wt.folder, "state": states[wt.folder].detail} for wt in chosen],
         }
         _emit(args, payload, "dry run only; rerun with --yes to drop.")
         return 0
     with mutation_lock():
-        for workspace_id in herdr.close_repo_workspaces(feature, chosen):
+        for workspace_id in herdr.close_repo_workspaces(thread, chosen):
             ui.ok(f"closed worktree workspace {workspace_id}")
         for wt in chosen:
-            gitops.worktree_remove(Path(wt.repo_path), feature.path_of(wt))
-            feature.worktrees.remove(wt)
-            feature.save()
+            gitops.worktree_remove(Path(wt.repo_path), thread.path_of(wt))
+            thread.worktrees.remove(wt)
+            thread.save()
             ui.ok(f"dropped {wt.folder}; branch {wt.branch} kept")
     _emit(
         args,
-        _feature_dict(feature, {}, states=False),
-        f"dropped {len(chosen)} worktree(s) from {feature.name}",
+        _thread_dict(thread, {}, states=False),
+        f"dropped {len(chosen)} worktree(s) from {thread.name}",
     )
     return 0
 
 
 def cmd_remove(args, config: Config) -> int:
     ui.set_noninteractive(_answers(args))
-    features = common.load_features(config)
-    feature = _find_feature(features, args.feature)
-    if not feature.readable:
-        raise ui.Abort(f"{feature.name} is unreadable ({feature.error}); remove {feature.root} by hand.")
-    states = {wt.folder: gitops.worktree_state(feature.path_of(wt)) for wt in feature.worktrees}
-    careful = [wt for wt in feature.worktrees if states[wt.folder].needs_care]
+    threads = common.load_threads(config)
+    thread = _find_thread(threads, args.thread)
+    if not thread.readable:
+        raise ui.Abort(f"{thread.name} is unreadable ({thread.error}); remove {thread.root} by hand.")
+    states = {wt.folder: gitops.worktree_state(thread.path_of(wt)) for wt in thread.worktrees}
+    careful = [wt for wt in thread.worktrees if states[wt.folder].needs_care]
     if careful and not args.force:
         detail = "; ".join(f"{wt.folder}: {states[wt.folder].detail}" for wt in careful)
         raise ui.Abort(
-            f"refusing to remove a feature with unsaved work ({detail}); pass --force to remove anyway."
+            f"refusing to remove a thread with unsaved work ({detail}); pass --force to remove anyway."
         )
-    live = common.live_map(features)
-    workspace_id = live.get(feature.name)
-    nested = common.repo_live_map([feature]).get(feature.name, {})
+    live = common.live_map(threads)
+    workspace_id = live.get(thread.name)
+    nested = common.repo_live_map([thread]).get(thread.name, {})
     if not args.yes:
         payload = {
             "dry_run": True,
-            "feature": feature.name,
+            "thread": thread.name,
             "workspace_id": workspace_id,
             "repo_workspaces": nested,
             "worktrees": [
@@ -485,12 +485,12 @@ def cmd_remove(args, config: Config) -> int:
                     "state": states[wt.folder].detail,
                     "branch_created": wt.branch_created,
                 }
-                for wt in feature.worktrees
+                for wt in thread.worktrees
             ],
         }
         _emit(args, payload, "dry run only; rerun with --yes to remove.")
         return 0
-    entries = list(feature.worktrees)
+    entries = list(thread.worktrees)
     deleted_branches = []
     with mutation_lock():
         closing = [*nested.values(), *([workspace_id] if workspace_id else [])]
@@ -498,27 +498,27 @@ def cmd_remove(args, config: Config) -> int:
             busy = herdr.busy_panes(*closing)
             if busy and not args.force:
                 raise ui.Abort(
-                    f"the feature's workspaces have {len(busy)} agent(s) working or waiting; pass --force to close them anyway."
+                    f"the thread's workspaces have {len(busy)} agent(s) working or waiting; pass --force to close them anyway."
                 )
             for closing_id in closing:
                 herdr.close_workspace(closing_id)
                 ui.ok(f"closed workspace {closing_id}")
         for wt in entries:
-            gitops.worktree_remove(Path(wt.repo_path), feature.path_of(wt))
-            feature.worktrees.remove(wt)
+            gitops.worktree_remove(Path(wt.repo_path), thread.path_of(wt))
+            thread.worktrees.remove(wt)
             ui.ok(f"removed {wt.folder}")
         import shutil
 
-        shutil.rmtree(feature.root, ignore_errors=True)
+        shutil.rmtree(thread.root, ignore_errors=True)
         if args.delete_branches:
-            claims = manifest.branch_claims([f for f in features if f is not feature])
+            claims = manifest.branch_claims([f for f in threads if f is not thread])
             for wt in entries:
                 if wt.branch_created and (wt.repo_path, wt.branch) not in claims:
                     if gitops.branch_delete(Path(wt.repo_path), wt.branch) is None:
                         deleted_branches.append({"repo": wt.repo_name, "branch": wt.branch})
                         ui.ok(f"deleted branch {wt.branch} in {wt.repo_name}")
     payload = {
-        "feature": feature.name,
+        "thread": thread.name,
         "removed": True,
         "closed_workspace": workspace_id,
         "closed_repo_workspaces": nested,
@@ -529,7 +529,7 @@ def cmd_remove(args, config: Config) -> int:
             if not any(d["repo"] == wt.repo_name and d["branch"] == wt.branch for d in deleted_branches)
         ],
     }
-    _emit(args, payload, f"removed {feature.name}")
+    _emit(args, payload, f"removed {thread.name}")
     return 0
 
 
@@ -561,8 +561,8 @@ def cmd_uninstall_cli(args, config=None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="herdr-feature",
-        description="Manage cross-repository feature workspaces in Herdr (non-interactive).",
+        prog="herdr-workthreads",
+        description="Manage cross-repository thread workspaces in Herdr (non-interactive).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -571,12 +571,12 @@ def build_parser() -> argparse.ArgumentParser:
         if mutating:
             p.add_argument("--yes", action="store_true", help="actually do it (otherwise dry run)")
 
-    p = sub.add_parser("list", help="list features, their status and worktrees")
+    p = sub.add_parser("list", help="list threads, their status and worktrees")
     common_flags(p, mutating=False)
     p.add_argument("--no-states", action="store_true", help="skip git status per worktree (faster)")
     p.set_defaults(func=cmd_list)
 
-    p = sub.add_parser("new", help="create a feature")
+    p = sub.add_parser("new", help="create a thread")
     common_flags(p, mutating=True)
     p.add_argument("--name", required=True)
     p.add_argument("--repo", action="append", default=[], help="repository name or path (repeatable)")
@@ -594,36 +594,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(func=cmd_new)
 
-    p = sub.add_parser("add", help="add worktrees to a feature")
+    p = sub.add_parser("add", help="add worktrees to a thread")
     common_flags(p, mutating=True)
-    p.add_argument("--feature", help="feature name (default: the one this pane's workspace belongs to)")
+    p.add_argument("--thread", help="thread name (default: the one this pane's workspace belongs to)")
     p.add_argument("--repo", action="append", default=[])
     p.add_argument("--suffix", action="append", default=[], metavar="REPO=SUFFIX")
     p.add_argument("--on-fetch-failure", choices=("abort", "continue"), default="abort")
-    p.add_argument("--open", action="store_true", help="open a workspace if the feature has none")
+    p.add_argument("--open", action="store_true", help="open a workspace if the thread has none")
     p.add_argument("--focus", action="store_true")
     p.set_defaults(func=cmd_add)
 
-    p = sub.add_parser("open", help="open or find a feature's workspace")
+    p = sub.add_parser("open", help="open or find a thread's workspace")
     common_flags(p, mutating=False)
-    p.add_argument("--feature", required=True)
+    p.add_argument("--thread", required=True)
     p.add_argument("--focus", action="store_true")
     p.set_defaults(func=cmd_open)
 
-    p = sub.add_parser("close", help="close a feature's Herdr workspaces (files and branches kept)")
+    p = sub.add_parser("close", help="close a thread's Herdr workspaces (files and branches kept)")
     common_flags(p, mutating=True)
-    p.add_argument("--feature", help="feature name (default: the one this pane's workspace belongs to)")
+    p.add_argument("--thread", help="thread name (default: the one this pane's workspace belongs to)")
     p.add_argument("--force", action="store_true", help="close even with agents working or waiting")
     p.set_defaults(func=cmd_close)
 
     p = sub.add_parser("refresh", help="look up every worktree's pull request with gh and fetch remotes")
     common_flags(p, mutating=False)
-    p.add_argument("--feature", help="only this feature (default: all)")
+    p.add_argument("--thread", help="only this thread (default: all)")
     p.set_defaults(func=cmd_refresh)
 
-    p = sub.add_parser("drop", help="remove worktrees from a feature (branches kept)")
+    p = sub.add_parser("drop", help="remove worktrees from a thread (branches kept)")
     common_flags(p, mutating=True)
-    p.add_argument("--feature")
+    p.add_argument("--thread")
     p.add_argument(
         "--worktree",
         action="append",
@@ -634,9 +634,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="drop even with uncommitted or unpushed work")
     p.set_defaults(func=cmd_drop)
 
-    p = sub.add_parser("remove", help="remove a feature entirely")
+    p = sub.add_parser("remove", help="remove a thread entirely")
     common_flags(p, mutating=True)
-    p.add_argument("--feature")
+    p.add_argument("--thread")
     p.add_argument("--force", action="store_true", help="remove even with unsaved work or busy agents")
     p.add_argument(
         "--delete-branches", action="store_true", help="also delete local branches this plugin created"
@@ -675,7 +675,7 @@ def main(argv: list[str]) -> int:
 
 
 def entrypoint() -> None:
-    """Console-script entry (`uv run herdr-feature`, or a pip install)."""
+    """Console-script entry (`uv run herdr-workthreads`, or a pip install)."""
     sys.exit(main(sys.argv[1:]))
 
 

@@ -2,7 +2,7 @@
 
 Plugin actions run without a TTY, and a popup is the only modal terminal Herdr offers a
 plugin. Every action therefore runs the same shim, `bin/action.sh`, which opens the
-single `ui` popup with `FEATURE_ACTION=<action id>` in its environment. The popup's
+single `ui` popup with `WORKTHREADS_ACTION=<action id>` in its environment. The popup's
 Python entrypoint dispatches on that variable.
 
 Six actions still appear in the manifest so each is bindable, but there is one pane
@@ -19,8 +19,8 @@ is open the shim turns `ui_busy` into a toast instead of a logged error.
 
 ## Update (board)
 
-The landing screen of that single popup is the feature board (`commands/board.py`): every
-feature with its pull request progress (ADR 0008), Enter to open, hotkeys for the other
+The landing screen of that single popup is the thread board (`commands/board.py`): every
+thread with its pull request progress (ADR 0008), Enter to open, hotkeys for the other
 commands. The `menu` action id is kept for existing keybindings and opens the board. The
 board runs sub-commands in-process and redraws afterwards, so a whole session of new,
 add, close and refresh happens inside one popup.

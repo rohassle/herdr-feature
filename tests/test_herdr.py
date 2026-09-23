@@ -5,12 +5,12 @@ from pathlib import Path
 from unittest import mock
 
 from .helpers import SRC  # noqa: F401
-from herdr_feature import herdr, manifest
+from herdr_workthreads import herdr, manifest
 
 
 class _Mode:
     def __init__(self, mode: str):
-        self.feature_workspace = mode in ("feature", "both")
+        self.thread_workspace = mode in ("thread", "both")
         self.repo_workspaces = mode in ("repos", "both")
 
 
@@ -35,10 +35,10 @@ class Mapping(unittest.TestCase):
         base = Path(self.tmp.name)
         self.plugin_root = base / "plugin"
         self.plugin_root.mkdir()
-        self.features = base / "features"
-        self.one = manifest.Feature(name="one", root=self.features / "one")
+        self.threads = base / "threads"
+        self.one = manifest.Thread(name="one", root=self.threads / "one")
         self.one.save()
-        self.two = manifest.Feature(name="two", root=self.features / "two")
+        self.two = manifest.Thread(name="two", root=self.threads / "two")
         self.two.remember_workspace("wOLD", "two")
         self.two.save()
         (self.one.root / "alpha").mkdir()
@@ -100,7 +100,7 @@ class Mapping(unittest.TestCase):
             live = herdr.map_live([self.one, self.two], heal=False)
         self.assertEqual(live, {"two": "wC"})
 
-    def test_current_feature_from_cwd(self):
+    def test_current_thread_from_cwd(self):
         ctx = herdr.Context(
             workspace_id=None,
             workspace_cwd=str(self.one.root / "alpha"),
@@ -111,9 +111,9 @@ class Mapping(unittest.TestCase):
             mock.patch.object(herdr, "panes", return_value=[]),
             mock.patch.object(herdr, "workspaces", return_value=[]),
         ):
-            self.assertIs(herdr.current_feature([self.one, self.two], ctx), self.one)
+            self.assertIs(herdr.current_thread([self.one, self.two], ctx), self.one)
 
-    def test_nested_worktree_workspaces_are_not_the_feature_workspace(self):
+    def test_nested_worktree_workspaces_are_not_the_thread_workspace(self):
         nested_checkout = str(self.one.root / "alpha")
         panes = [
             {"pane_id": "w5:p1", "workspace_id": "w5", "cwd": nested_checkout, "foreground_cwd": None},
@@ -141,9 +141,9 @@ class Mapping(unittest.TestCase):
             ctx = herdr.Context(
                 workspace_id="w5", workspace_cwd=None, focused_pane_cwd=None, workspace_label=None
             )
-            self.assertIs(herdr.current_feature([self.one, self.two], ctx), self.one)
+            self.assertIs(herdr.current_thread([self.one, self.two], ctx), self.one)
 
-    def test_feature_and_nested_workspaces_coexist(self):
+    def test_thread_and_nested_workspaces_coexist(self):
         root = str(self.one.root)
         nested_checkout = str(self.one.root / "alpha")
         self.one.worktrees.append(_entry("alpha"))
@@ -166,7 +166,7 @@ class Mapping(unittest.TestCase):
             self.assertEqual(herdr.map_live([self.one], heal=False), {"one": "w7"})
             self.assertEqual(herdr.repo_workspaces(self.one), {"alpha": "w5"})
 
-    def test_open_feature_respects_mode_and_is_idempotent(self):
+    def test_open_thread_respects_mode_and_is_idempotent(self):
         self.one.worktrees.append(_entry("alpha"))
         self.one.worktrees.append(_entry("beta"))
         calls = []
@@ -186,7 +186,7 @@ class Mapping(unittest.TestCase):
             mock.patch.object(herdr, "repo_workspaces", return_value=existing),
             mock.patch.object(herdr, "focus_workspace") as focus,
         ):
-            opened = herdr.open_feature(_Mode("both"), self.one, focus=True)
+            opened = herdr.open_thread(_Mode("both"), self.one, focus=True)
             self.assertEqual(opened.workspace_id, "wF")
             self.assertEqual(opened.repo_workspaces, {"alpha": "w-alpha", "beta": "w-beta"})
             self.assertTrue(opened.created)
@@ -195,18 +195,18 @@ class Mapping(unittest.TestCase):
             self.assertEqual(opened_paths, [str(self.one.root / "beta")])
 
             calls.clear()
-            opened = herdr.open_feature(_Mode("repos"), self.one, focus=True, workspace_id=None)
+            opened = herdr.open_thread(_Mode("repos"), self.one, focus=True, workspace_id=None)
             self.assertIsNone(opened.workspace_id)
             self.assertEqual(opened.any, "w-alpha")
             self.assertFalse(any(a[:2] == ("workspace", "create") for a in calls))
 
             calls.clear()
-            opened = herdr.open_feature(_Mode("feature"), self.one, focus=False, workspace_id="wLIVE")
+            opened = herdr.open_thread(_Mode("thread"), self.one, focus=False, workspace_id="wLIVE")
             self.assertEqual(opened.workspace_id, "wLIVE")
             self.assertEqual(calls, [])
             self.assertFalse(opened.created)
 
-    def test_open_feature_collects_nested_failures(self):
+    def test_open_thread_collects_nested_failures(self):
         self.one.worktrees.append(_entry("alpha"))
 
         def fake_call(*args):
@@ -216,7 +216,7 @@ class Mapping(unittest.TestCase):
             mock.patch.object(herdr, "call", side_effect=fake_call),
             mock.patch.object(herdr, "repo_workspaces", return_value={}),
         ):
-            opened = herdr.open_feature(_Mode("repos"), self.one, focus=False)
+            opened = herdr.open_thread(_Mode("repos"), self.one, focus=False)
         self.assertEqual(opened.repo_workspaces, {})
         self.assertEqual(len(opened.failures), 1)
         self.assertIn("alpha", opened.failures[0])

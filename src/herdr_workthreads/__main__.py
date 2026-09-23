@@ -1,4 +1,4 @@
-"""Entry point. The popup runs `python -m herdr_feature` with FEATURE_ACTION in the
+"""Entry point. The popup runs `python -m herdr_workthreads` with WORKTHREADS_ACTION in the
 environment (set by bin/action.sh); a command name may also be given as argv[1]."""
 
 from __future__ import annotations
@@ -21,28 +21,28 @@ def preview_repo(path: str) -> int:
     return 0
 
 
-def preview_feature(root: str) -> int:
+def preview_thread(root: str) -> int:
     try:
-        feature = manifest.load(Path(root))
+        thread = manifest.load(Path(root))
     except manifest.ManifestError as error:
         print(f"unreadable manifest: {error}")
         return 0
     from .commands import common
 
-    progress = common.feature_progress(feature)
-    print(f"{feature.name}  ({'done' if progress.done else feature.status})  {progress.bar()}")
-    print(f"{feature.root}\n")
-    if feature.workspace:
-        print(f"last workspace: {feature.workspace.get('id')}  seen {feature.workspace.get('seen_at')}\n")
-    for worktree in feature.worktrees:
-        state = gitops.worktree_state(feature.path_of(worktree))
+    progress = common.thread_progress(thread)
+    print(f"{thread.name}  ({'done' if progress.done else thread.status})  {progress.bar()}")
+    print(f"{thread.root}\n")
+    if thread.workspace:
+        print(f"last workspace: {thread.workspace.get('id')}  seen {thread.workspace.get('seen_at')}\n")
+    for worktree in thread.worktrees:
+        state = gitops.worktree_state(thread.path_of(worktree))
         wp = common.worktree_progress(worktree)
         print(f"{worktree.folder}\n    {worktree.branch}\n    {wp.detail}  ·  {state.detail}")
         if wp.pr and wp.pr.url:
             print(f"    {wp.pr.url}")
         if wp.pr and wp.pr.title:
             print(f"    {wp.pr.title}")
-    if not feature.worktrees:
+    if not thread.worktrees:
         print("(no worktrees)")
     return 0
 
@@ -71,15 +71,15 @@ def dispatch(action: str) -> None:
 
 
 def main(argv: list[str]) -> int:
-    action = argv[1] if len(argv) > 1 else os.environ.get("FEATURE_ACTION", "menu")
+    action = argv[1] if len(argv) > 1 else os.environ.get("WORKTHREADS_ACTION", "menu")
     if action == "cli":
         from .cli import main as cli_main
 
         return cli_main(argv[2:])
     if action == "preview-repo" and len(argv) > 2:
         return preview_repo(argv[2])
-    if action == "preview-feature" and len(argv) > 2:
-        return preview_feature(argv[2])
+    if action == "preview-thread" and len(argv) > 2:
+        return preview_thread(argv[2])
 
     try:
         dispatch(action)
@@ -95,7 +95,7 @@ def main(argv: list[str]) -> int:
     except Exception:
         ui.restore_terminal()
         traceback.print_exc()
-        print("\nherdr-feature hit an unexpected error (details above).", file=sys.stderr)
+        print("\nherdr-workthreads hit an unexpected error (details above).", file=sys.stderr)
         ui.pause()
         return 1
     finally:

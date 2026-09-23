@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "herdr-feature"
+name = "herdr-workthreads"
 version = "0.1.0"
 source = { editable = "." }
 

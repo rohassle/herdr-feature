@@ -1,4 +1,4 @@
-"""drop: remove individual worktrees from a feature. Branches are kept."""
+"""drop: remove individual worktrees from a thread. Branches are kept."""
 
 from __future__ import annotations
 
@@ -7,28 +7,28 @@ from pathlib import Path
 from .. import gitops, herdr, ui
 from ..config import Config
 from ..lock import mutation_lock
-from ..manifest import Feature
+from ..manifest import Thread
 from . import common
 from .add import resolve_target
 
 
-def run(config: Config, feature: Feature | None = None) -> None:
-    features = common.load_features(config)
-    if feature is not None:
-        feature = next((f for f in features if f.root == feature.root), feature)
-        if not feature.mutable:
-            raise ui.Abort(f"{feature.name} cannot be changed right now.")
+def run(config: Config, thread: Thread | None = None) -> None:
+    threads = common.load_threads(config)
+    if thread is not None:
+        thread = next((f for f in threads if f.root == thread.root), thread)
+        if not thread.mutable:
+            raise ui.Abort(f"{thread.name} cannot be changed right now.")
     else:
-        feature, _ = resolve_target(config, features, verb="drop worktrees from")
-    if not feature.worktrees:
-        raise ui.Abort(f"{feature.name} has no worktrees to drop.")
-    ui.heading(f"Drop worktrees from {feature.name}")
+        thread, _ = resolve_target(config, threads, verb="drop worktrees from")
+    if not thread.worktrees:
+        raise ui.Abort(f"{thread.name} has no worktrees to drop.")
+    ui.heading(f"Drop worktrees from {thread.name}")
 
     with mutation_lock():
         rows = []
         states = {}
-        for worktree in feature.worktrees:
-            state = gitops.worktree_state(feature.path_of(worktree))
+        for worktree in thread.worktrees:
+            state = gitops.worktree_state(thread.path_of(worktree))
             states[worktree.folder] = state
             rows.append(
                 ui.encode_row(
@@ -38,7 +38,7 @@ def run(config: Config, feature: Feature | None = None) -> None:
         keys = ui.pick(
             rows, prompt_text="drop> ", header="Tab: mark   Enter: confirm   Esc: cancel", multi=True
         )
-        chosen = [wt for wt in feature.worktrees if wt.folder in set(keys)]
+        chosen = [wt for wt in thread.worktrees if wt.folder in set(keys)]
         if not chosen:
             raise ui.Cancelled()
 
@@ -48,7 +48,7 @@ def run(config: Config, feature: Feature | None = None) -> None:
             all_panes = []
         affected = []
         for worktree in chosen:
-            for pane in herdr.panes_inside(feature.path_of(worktree), all_panes):
+            for pane in herdr.panes_inside(thread.path_of(worktree), all_panes):
                 affected.append((worktree, pane))
         if affected:
             ui.warn("these panes are working inside worktrees you are about to drop:")
@@ -63,21 +63,21 @@ def run(config: Config, feature: Feature | None = None) -> None:
             ui.warn("these worktrees have work that exists nowhere else:")
             for worktree in careful:
                 ui.step(f"{worktree.folder:<40} {states[worktree.folder].detail}")
-            if not ui.confirm_typed(feature.name, "Uncommitted or unpushed work will be lost."):
+            if not ui.confirm_typed(thread.name, "Uncommitted or unpushed work will be lost."):
                 raise ui.Cancelled()
         elif not ui.confirm(
-            f"Drop {len(chosen)} worktree(s) from {feature.name!r}? Branches are kept.", default=True
+            f"Drop {len(chosen)} worktree(s) from {thread.name!r}? Branches are kept.", default=True
         ):
             raise ui.Cancelled()
 
         ui.heading("Dropping")
-        for workspace_id in herdr.close_repo_workspaces(feature, chosen):
+        for workspace_id in herdr.close_repo_workspaces(thread, chosen):
             ui.ok(f"closed worktree workspace {workspace_id}")
         for worktree in chosen:
-            note = gitops.worktree_remove(Path(worktree.repo_path), feature.path_of(worktree))
-            feature.worktrees.remove(worktree)
-            feature.save()
+            note = gitops.worktree_remove(Path(worktree.repo_path), thread.path_of(worktree))
+            thread.worktrees.remove(worktree)
+            thread.save()
             ui.ok(f"{worktree.folder}" + (f" ({note})" if note else "") + f"; branch {worktree.branch} kept")
 
-    print(f"\n{feature.name}: {len(feature.worktrees)} worktree(s) remain.")
+    print(f"\n{thread.name}: {len(thread.worktrees)} worktree(s) remain.")
     ui.pause()

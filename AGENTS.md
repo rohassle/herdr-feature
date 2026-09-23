@@ -1,9 +1,9 @@
-# Working on herdr-feature
+# Working on herdr-workthreads
 
-A Herdr plugin. A feature is a thread of work across repositories: a folder under
-`~/.herdr/features/<name>/` holding one Git worktree per repository plus a `.feature.json`
+A Herdr plugin. A work thread runs through several repositories: a folder under
+`~/.herdr/workthreads/<name>/` holding one Git worktree per repository plus a `.workthread.json`
 manifest, surfaced as Herdr workspaces. Users drive it from the board popup (`prefix+f`),
-agents and scripts from the `herdr-feature` CLI. Both share the same core. A worktree is
+agents and scripts from the `herdr-workthreads` CLI. Both share the same core. A worktree is
 done when its pull request is merged (looked up with `gh`, ADR 0008). Read [ARCHITECTURE.md](ARCHITECTURE.md) before
 changing anything under `src/`, and [CONTEXT.md](CONTEXT.md) for the vocabulary.
 
@@ -30,16 +30,16 @@ uv sync                                   # dev environment (.venv) with ruff
 uv run python -m unittest discover -s tests -t . -v      # unit tests: pure functions + real git in temp dirs
 uv run tests/e2e/run.py                   # inside Herdr only: creates and removes zz-test-* workspaces
 uv run ruff check . && uv run ruff format --check .
-uv run herdr-feature list                 # the CLI from the checkout, without installing anything
+uv run herdr-workthreads list                 # the CLI from the checkout, without installing anything
 ```
 
 To run the popup from your checkout instead of an installed copy:
 
 ```sh
-herdr plugin uninstall feature            # if a GitHub install is active
+herdr plugin uninstall workthreads            # if a GitHub install is active
 herdr plugin link "$PWD"
-herdr-feature install-cli                 # re-point ~/.local/bin/herdr-feature at this checkout
-herdr plugin log list --plugin feature    # stderr of action runs
+herdr-workthreads install-cli                 # re-point ~/.local/bin/herdr-workthreads at this checkout
+herdr plugin log list --plugin workthreads    # stderr of action runs
 ```
 
 `herdr plugin link` skips build steps and picks up file edits immediately; no restart needed.
@@ -48,11 +48,11 @@ herdr plugin log list --plugin feature    # stderr of action runs
 
 ```
 herdr-plugin.toml        manifest: 8 actions (all run bin/action.sh), 1 popup pane (bin/bootstrap.sh)
-bin/                     action.sh (opens the popup), bootstrap.sh (finds python, runs the package), herdr-feature (CLI launcher)
-src/herdr_feature/       the package; see ARCHITECTURE.md
+bin/                     action.sh (opens the popup), bootstrap.sh (finds python, runs the package), herdr-workthreads (CLI launcher)
+src/herdr_workthreads/       the package; see ARCHITECTURE.md
 tests/                   unittest modules; tests/e2e/run.py drives the real thing against fixture repos
                          with a fake fzf (fake_fzf.sh) and a fake gh (fake_gh.sh)
-skills/herdr-feature/    Claude Code skill installed by install-cli
+skills/herdr-workthreads/    Claude Code skill installed by install-cli
 docs/adr/                design decisions
 ```
 

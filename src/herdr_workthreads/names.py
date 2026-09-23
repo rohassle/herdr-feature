@@ -1,4 +1,4 @@
-"""Feature, suffix, branch and folder naming rules. Pure functions, no I/O except
+"""Thread, suffix, branch and folder naming rules. Pure functions, no I/O except
 `check_ref_format`, which shells out to git."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import subprocess
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 
-def validate_name(value: str, what: str = "feature name") -> str | None:
+def validate_name(value: str, what: str = "thread name") -> str | None:
     """Return an error message, or None when `value` is acceptable."""
     if not value:
         return f"{what} is empty."
@@ -25,8 +25,8 @@ def validate_name(value: str, what: str = "feature name") -> str | None:
     return None
 
 
-def branch_for(prefix: str, feature: str, suffix: str | None = None) -> str:
-    branch = f"{prefix}{feature}"
+def branch_for(prefix: str, thread: str, suffix: str | None = None) -> str:
+    branch = f"{prefix}{thread}"
     if suffix:
         branch = f"{branch}-{suffix}"
     return branch
@@ -37,7 +37,7 @@ def folder_for(repo_name: str, suffix: str | None = None) -> str:
 
 
 def same_name(left: str, right: str) -> bool:
-    """Feature names collide case-insensitively: APFS folders and loose refs do."""
+    """Thread names collide case-insensitively: APFS folders and loose refs do."""
     return left.casefold() == right.casefold()
 
 

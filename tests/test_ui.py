@@ -3,7 +3,7 @@ import unittest
 from unittest import mock
 
 from .helpers import SRC  # noqa: F401
-from herdr_feature import ui
+from herdr_workthreads import ui
 
 
 class Rows(unittest.TestCase):
@@ -22,7 +22,7 @@ class ScriptedInputs(unittest.TestCase):
         ui._scripted = ui._UNSET
 
     def test_prompt_confirm_choose_from_env(self):
-        with mock.patch.dict(os.environ, {"HERDR_FEATURE_INPUTS": "bad name\ngood\n\nc\nfeat"}):
+        with mock.patch.dict(os.environ, {"HERDR_WORKTHREADS_INPUTS": "bad name\ngood\n\nc\nfeat"}):
             self.assertEqual(ui.prompt("name", validator=lambda v: "nope" if " " in v else None), "good")
             self.assertFalse(ui.confirm("q?"))
             self.assertEqual(ui.choose("q", {"c": "cont", "a": "abort"}, default="a"), "c")

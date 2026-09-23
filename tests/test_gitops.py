@@ -3,14 +3,14 @@ import unittest
 from pathlib import Path
 
 from .helpers import SRC, git, make_repo  # noqa: F401
-from herdr_feature import gitops
+from herdr_workthreads import gitops
 
 
 PORCELAIN = """worktree /repos/alpha
 HEAD 1111111111111111111111111111111111111111
 branch refs/heads/main
 
-worktree /features/x/alpha
+worktree /threads/x/alpha
 HEAD 2222222222222222222222222222222222222222
 branch refs/heads/feat/x
 locked
@@ -25,7 +25,7 @@ prunable gitdir file points to non-existent location
 class Parsers(unittest.TestCase):
     def test_parse_worktree_list(self):
         entries = gitops.parse_worktree_list(PORCELAIN)
-        self.assertEqual([e.path for e in entries], ["/repos/alpha", "/features/x/alpha", "/gone"])
+        self.assertEqual([e.path for e in entries], ["/repos/alpha", "/threads/x/alpha", "/gone"])
         self.assertEqual(entries[0].branch, "main")
         self.assertEqual(entries[1].branch, "feat/x")
         self.assertTrue(entries[1].locked)
@@ -53,7 +53,7 @@ class RealGit(unittest.TestCase):
         base = Path(self.tmp.name)
         self.repo = make_repo(base / "alpha", origin=base / "alpha.git")
         self.noremote = make_repo(base / "solo", branch="master")
-        self.target = base / "features" / "x"
+        self.target = base / "threads" / "x"
 
     def tearDown(self):
         self.tmp.cleanup()

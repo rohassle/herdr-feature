@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest import mock
 
 from .helpers import SRC  # noqa: F401
-from herdr_feature import manifest, prs
-from herdr_feature.ui import Abort
+from herdr_workthreads import manifest, prs
+from herdr_workthreads.ui import Abort
 
 OPEN = '[{"number": 12, "url": "https://github.com/o/r/pull/12", "state": "OPEN", "isDraft": false, "mergedAt": null, "reviewDecision": "APPROVED", "title": "Retry payments"}]'
 MERGED = '[{"number": 7, "url": "https://github.com/o/r/pull/7", "state": "MERGED", "isDraft": false, "mergedAt": "2026-09-20T10:00:00Z", "reviewDecision": "", "title": "Done"}]'
@@ -45,7 +45,7 @@ class Parsing(unittest.TestCase):
         self.assertIsNone(prs.from_dict(None))
 
     def test_gh_binary_override_and_missing(self):
-        with mock.patch.dict(os.environ, {"HERDR_FEATURE_GH": "/nonexistent/gh"}):
+        with mock.patch.dict(os.environ, {"HERDR_WORKTHREADS_GH": "/nonexistent/gh"}):
             with self.assertRaises(Abort):
                 prs.gh_binary()
         with (
@@ -53,7 +53,7 @@ class Parsing(unittest.TestCase):
             mock.patch.object(prs.shutil, "which", return_value=None),
             mock.patch.object(prs.os, "access", return_value=False),
         ):
-            os.environ.pop("HERDR_FEATURE_GH", None)
+            os.environ.pop("HERDR_WORKTHREADS_GH", None)
             with self.assertRaises(Abort) as caught:
                 prs.gh_binary()
         self.assertIn("gh was not found", str(caught.exception))
@@ -62,8 +62,8 @@ class Parsing(unittest.TestCase):
 class Lookup(unittest.TestCase):
     def test_lookup_all_stores_results_and_refresh_saves(self):
         with tempfile.TemporaryDirectory() as tmp:
-            feature = manifest.Feature(name="f", root=Path(tmp) / "f")
-            feature.worktrees.append(
+            thread = manifest.Thread(name="f", root=Path(tmp) / "f")
+            thread.worktrees.append(
                 manifest.Worktree(
                     repo_name="a",
                     repo_path="/r/a",
@@ -77,7 +77,7 @@ class Lookup(unittest.TestCase):
                     remote=None,
                 )
             )
-            feature.save()
+            thread.save()
             calls = []
 
             def fake_run(cmd, **kwargs):
@@ -90,10 +90,10 @@ class Lookup(unittest.TestCase):
                 mock.patch.object(prs, "gh_binary", return_value="gh"),
                 mock.patch.object(prs.subprocess, "run", side_effect=fake_run),
             ):
-                results = prs.refresh([feature])
+                results = prs.refresh([thread])
             self.assertEqual(len(results), 1)
             self.assertEqual(calls[1][1:5], ["pr", "list", "--head", "f"])
-            reloaded = manifest.load(feature.root)
+            reloaded = manifest.load(thread.root)
             self.assertEqual(reloaded.worktrees[0].pr["state"], "MERGED")
             self.assertEqual(prs.last_checked([reloaded]), reloaded.worktrees[0].pr["checked_at"])
 

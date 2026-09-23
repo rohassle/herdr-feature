@@ -11,19 +11,19 @@ set --
 # Popups always attach to the active pane; Herdr rejects --workspace for them, so the
 # invoker's workspace travels in the environment instead.
 if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
-    set -- "$@" --env "FEATURE_WORKSPACE_ID=$HERDR_WORKSPACE_ID"
+    set -- "$@" --env "WORKTHREADS_WORKSPACE_ID=$HERDR_WORKSPACE_ID"
 fi
 if [ -n "${HERDR_PLUGIN_CONTEXT_JSON:-}" ]; then
-    set -- "$@" --env "FEATURE_INVOKER_CONTEXT=$HERDR_PLUGIN_CONTEXT_JSON"
+    set -- "$@" --env "WORKTHREADS_INVOKER_CONTEXT=$HERDR_PLUGIN_CONTEXT_JSON"
 fi
 
-err=$("$herdr" plugin pane open --plugin "${HERDR_PLUGIN_ID:-feature}" --entrypoint ui \
-    --env "FEATURE_ACTION=$action" "$@" 2>&1 >/dev/null)
+err=$("$herdr" plugin pane open --plugin "${HERDR_PLUGIN_ID:-workthreads}" --entrypoint ui \
+    --env "WORKTHREADS_ACTION=$action" "$@" 2>&1 >/dev/null)
 status=$?
 if [ "$status" -ne 0 ]; then
     case "$err" in
         *ui_busy*)
-            "$herdr" notification show "Feature" --body "Another popup is open. Close it and try again." >/dev/null 2>&1
+            "$herdr" notification show "Thread" --body "Another popup is open. Close it and try again." >/dev/null 2>&1
             exit 0
             ;;
     esac

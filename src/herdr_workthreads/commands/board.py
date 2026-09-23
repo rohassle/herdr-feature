@@ -1,5 +1,5 @@
-"""board: the landing screen. Every feature as a thread of work with a progress bar;
-Enter opens or focuses it, hotkeys run the other commands on the selected feature."""
+"""board: the landing screen. Every thread as a thread of work with a progress bar;
+Enter opens or focuses it, hotkeys run the other commands on the selected thread."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 
 from .. import manifest, prs, ui
 from ..config import Config
-from ..manifest import Feature
+from ..manifest import Thread
 from . import add, close, common, drop, install_cli, new, remove
 
 HOTKEYS = [
@@ -27,26 +27,26 @@ HOTKEYS = [
 EXPECT = [key for key, _ in HOTKEYS if key != "enter"] + ["f1"]
 
 HELP = """\
-Feature board
+Thread board
 
-  A feature is one thread of work across repositories: a folder holding one Git
+  A thread is one piece of work running through several repositories: a folder holding one Git
   worktree per repository, opened as Herdr workspaces. A worktree is done when its
-  pull request is merged; a feature is done when every worktree is.
+  pull request is merged; a thread is done when every worktree is.
 
 Row
   name   progress bar (█ merged  ░ not yet  ? not refreshed)   status   summary
   status: open (workspaces live)  closed (files only)  done (all PRs merged)
 
-Keys, on the highlighted feature
-  Enter    open or focus its workspaces; on a done feature, offer to remove it
+Keys, on the highlighted thread
+  Enter    open or focus its workspaces; on a done thread, offer to remove it
   ctrl-w   close its workspaces (worktrees, folder and branches are kept)
-  ctrl-n   new feature
+  ctrl-n   new thread
   ctrl-a   add repositories to it
   ctrl-d   drop worktrees from it (branches kept)
   ctrl-x   remove it: worktrees, folder, workspaces, optionally its branches
   ctrl-r   refresh: look up every pull request with gh, fetch default branches
   ctrl-o   open its pull requests in the browser
-  ctrl-t   install the herdr-feature command line (for agents and scripts)
+  ctrl-t   install the herdr-workthreads command line (for agents and scripts)
   ?  F1    this help
   Esc      leave the board
 
@@ -57,9 +57,9 @@ Nothing is deleted by closing; only remove and drop delete, after confirmation.
 STATUS_DONE = "done"
 
 
-def _status(feature: Feature, live: dict, repo_live: dict) -> str:
-    word = common.status_word(feature, live, repo_live)
-    if word in ("open", "closed") and common.feature_progress(feature).done:
+def _status(thread: Thread, live: dict, repo_live: dict) -> str:
+    word = common.status_word(thread, live, repo_live)
+    if word in ("open", "closed") and common.thread_progress(thread).done:
         return STATUS_DONE
     return word
 
@@ -68,48 +68,48 @@ def _rank(status: str) -> int:
     return {"open": 0, "closed": 1, STATUS_DONE: 3}.get(status, 2)
 
 
-def _rows(features: list[Feature], live: dict, repo_live: dict) -> tuple[list[str], dict[str, Feature]]:
-    items = [(feature, _status(feature, live, repo_live)) for feature in features]
+def _rows(threads: list[Thread], live: dict, repo_live: dict) -> tuple[list[str], dict[str, Thread]]:
+    items = [(thread, _status(thread, live, repo_live)) for thread in threads]
     items.sort(key=lambda item: (_rank(item[1]), -_updated(item[0])))
     rows, by_key = [], {}
-    for feature, status in items:
-        progress = common.feature_progress(feature)
-        count = len(feature.worktrees) if feature.readable else 0
+    for thread, status in items:
+        progress = common.thread_progress(thread)
+        count = len(thread.worktrees) if thread.readable else 0
         open_prs = sum(
-            common.worktree_progress(wt).kind == common.PROGRESS_OPEN_PR for wt in feature.worktrees
+            common.worktree_progress(wt).kind == common.PROGRESS_OPEN_PR for wt in thread.worktrees
         )
         detail = f"{count} worktree{'s' if count != 1 else ''}"
         if open_prs:
             detail += f" · {open_prs} PR{'s' if open_prs != 1 else ''} open"
-        if not feature.readable:
-            detail = feature.error or "unreadable"
-        key = str(feature.root)
-        by_key[key] = feature
-        rows.append(ui.encode_row(key, f"{feature.name:<28}", progress.bar(), f"{status:<8}", detail))
+        if not thread.readable:
+            detail = thread.error or "unreadable"
+        key = str(thread.root)
+        by_key[key] = thread
+        rows.append(ui.encode_row(key, f"{thread.name:<28}", progress.bar(), f"{status:<8}", detail))
     return rows, by_key
 
 
-def _updated(feature: Feature) -> float:
+def _updated(thread: Thread) -> float:
     try:
         from datetime import datetime
 
-        return datetime.fromisoformat(feature.updated_at.replace("Z", "+00:00")).timestamp()
+        return datetime.fromisoformat(thread.updated_at.replace("Z", "+00:00")).timestamp()
     except (ValueError, AttributeError):
         return 0.0
 
 
-def _header(features: list[Feature], live: dict, repo_live: dict, notice: str | None) -> str:
-    readable = [f for f in features if f.readable]
-    totals = [common.feature_progress(f) for f in readable]
+def _header(threads: list[Thread], live: dict, repo_live: dict, notice: str | None) -> str:
+    readable = [f for f in threads if f.readable]
+    totals = [common.thread_progress(f) for f in readable]
     done = sum(1 for p in totals if p.done)
     merged = sum(p.merged for p in totals)
     total = sum(p.total for p in totals)
     open_count = sum(1 for f in readable if f.name in live or repo_live.get(f.name))
     summary = (
-        f"{len(readable)} feature{'s' if len(readable) != 1 else ''} · {open_count} open · "
+        f"{len(readable)} thread{'s' if len(readable) != 1 else ''} · {open_count} open · "
         f"{done} done · {merged}/{total} merged"
     )
-    checked = prs.last_checked(features)
+    checked = prs.last_checked(threads)
     if notice:
         freshness = notice
     elif checked is None:
@@ -133,10 +133,10 @@ def _sub(action, *args, **kwargs) -> None:
         ui.pause()
 
 
-def _open_urls(feature: Feature) -> None:
-    urls = [pr.url for wt in feature.worktrees if (pr := prs.from_dict(wt.pr)) and pr.url]
+def _open_urls(thread: Thread) -> None:
+    urls = [pr.url for wt in thread.worktrees if (pr := prs.from_dict(wt.pr)) and pr.url]
     if not urls:
-        ui.warn(f"{feature.name} has no pull requests on record; refresh with ctrl-r.")
+        ui.warn(f"{thread.name} has no pull requests on record; refresh with ctrl-r.")
         ui.pause()
         return
     opener = "open" if sys.platform == "darwin" else "xdg-open"
@@ -157,17 +157,17 @@ def run(config: Config) -> None:
         notice = str(error)
 
     while True:
-        features = common.load_features(config)
-        live = common.live_map(features)
-        repo_live = common.repo_live_map(features)
-        rows, by_key = _rows(features, live, repo_live)
+        threads = common.load_threads(config)
+        live = common.live_map(threads)
+        repo_live = common.repo_live_map(threads)
+        rows, by_key = _rows(threads, live, repo_live)
         if not rows:
-            rows = [ui.encode_row("", "(no features yet)", "", "", "ctrl-n to start one")]
+            rows = [ui.encode_row("", "(no threads yet)", "", "", "ctrl-n to start one")]
         key, keys = ui.pick_expect(
             rows,
-            prompt_text="feature> ",
-            header=_header(features, live, repo_live, notice),
-            preview=ui.preview_command("preview-feature"),
+            prompt_text="thread> ",
+            header=_header(threads, live, repo_live, notice),
+            preview=ui.preview_command("preview-thread"),
             preview_size="50%",
             expect=EXPECT,
         )
@@ -185,7 +185,7 @@ def run(config: Config) -> None:
             continue
         if key == "ctrl-r":
             try:
-                common.refresh_progress(features)
+                common.refresh_progress(threads)
                 notice = None
             except ui.Abort as error:
                 notice = str(error)
@@ -223,7 +223,7 @@ def run(config: Config) -> None:
                 "Run 'new' with the same name to clean it up, or remove it (ctrl-x).",
             )
             continue
-        if common.feature_progress(selected).done:
+        if common.thread_progress(selected).done:
             ui.heading(f"{selected.name} is done: every pull request is merged")
             if ui.confirm("Remove its worktrees and folder now?", default=True):
                 _sub(remove.run, config, selected, delete_branches_default=True)

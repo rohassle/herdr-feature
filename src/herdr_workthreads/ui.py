@@ -1,7 +1,7 @@
 """Terminal UI for the popup: fzf pickers, prompts, confirmations, progress lines.
 
 Everything interactive goes through here so tests can drive the plugin with
-HERDR_FEATURE_INPUTS (newline-separated prompt answers) and HERDR_FEATURE_FZF (a fake
+HERDR_WORKTHREADS_INPUTS (newline-separated prompt answers) and HERDR_WORKTHREADS_FZF (a fake
 fzf that echoes preselected keys).
 """
 
@@ -52,7 +52,7 @@ _scripted: deque[str] | None | object = _UNSET
 def _inputs() -> deque[str] | None:
     global _scripted
     if _scripted is _UNSET:
-        raw = os.environ.get("HERDR_FEATURE_INPUTS")
+        raw = os.environ.get("HERDR_WORKTHREADS_INPUTS")
         _scripted = deque(raw.split("\n")) if raw is not None else None
     return _scripted  # type: ignore[return-value]
 
@@ -170,10 +170,10 @@ def choose(question: str, options: dict[str, str], *, default: str, key: str = "
 
 
 def find_fzf() -> str:
-    override = os.environ.get("HERDR_FEATURE_FZF")
+    override = os.environ.get("HERDR_WORKTHREADS_FZF")
     if override:
         if not os.access(override, os.X_OK):
-            raise Abort(f"HERDR_FEATURE_FZF={override} is not executable.")
+            raise Abort(f"HERDR_WORKTHREADS_FZF={override} is not executable.")
         return override
     found = shutil.which("fzf")
     if found:
@@ -182,7 +182,7 @@ def find_fzf() -> str:
         path = Path(candidate).expanduser()
         if os.access(path, os.X_OK):
             return str(path)
-    raise Abort("fzf was not found. Install it (brew install fzf) or set HERDR_FEATURE_FZF.")
+    raise Abort("fzf was not found. Install it (brew install fzf) or set HERDR_WORKTHREADS_FZF.")
 
 
 def encode_row(key: str, *columns: str) -> str:
@@ -195,7 +195,7 @@ def preview_command(*args: str) -> str:
     """A --preview command that calls back into this package; {1} is the row key."""
     python = shlex.quote(sys.executable)
     quoted = " ".join(shlex.quote(arg) for arg in args)
-    return f"{python} -m herdr_feature {quoted} {{1}}"
+    return f"{python} -m herdr_workthreads {quoted} {{1}}"
 
 
 def pick(

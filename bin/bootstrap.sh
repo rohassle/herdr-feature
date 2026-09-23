@@ -11,11 +11,11 @@ usable() {
 }
 
 python=""
-if [ -n "${HERDR_FEATURE_PYTHON:-}" ]; then
-    if usable "$HERDR_FEATURE_PYTHON"; then
-        python="$HERDR_FEATURE_PYTHON"
+if [ -n "${HERDR_WORKTHREADS_PYTHON:-}" ]; then
+    if usable "$HERDR_WORKTHREADS_PYTHON"; then
+        python="$HERDR_WORKTHREADS_PYTHON"
     else
-        echo "HERDR_FEATURE_PYTHON=$HERDR_FEATURE_PYTHON is not a Python 3.11+ interpreter." >&2
+        echo "HERDR_WORKTHREADS_PYTHON=$HERDR_WORKTHREADS_PYTHON is not a Python 3.11+ interpreter." >&2
         exit 1
     fi
 fi
@@ -38,10 +38,10 @@ fi
 
 if [ -z "$python" ]; then
     cat >&2 <<MSG
-herdr-feature needs Python 3.11 or newer and could not find one.
+herdr-workthreads needs Python 3.11 or newer and could not find one.
 
 Install one (brew install python) or point the plugin at it:
-  export HERDR_FEATURE_PYTHON=/path/to/python3
+  export HERDR_WORKTHREADS_PYTHON=/path/to/python3
 MSG
     printf 'Enter to close.' >&2
     read -r _ 2>/dev/null || true
@@ -49,4 +49,4 @@ MSG
 fi
 
 export PYTHONPATH="$root/src${PYTHONPATH:+:$PYTHONPATH}"
-exec "$python" -m herdr_feature "$@"
+exec "$python" -m herdr_workthreads "$@"

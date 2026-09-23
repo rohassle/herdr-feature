@@ -17,7 +17,7 @@ STALE_AFTER_SECONDS = 600
 def state_dir() -> Path:
     base = os.environ.get("HERDR_PLUGIN_STATE_DIR")
     if not base:
-        base = Path.home() / ".local/state/herdr/plugins/feature"
+        base = Path.home() / ".local/state/herdr/plugins/thread"
     path = Path(base)
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -51,7 +51,7 @@ def mutation_lock():
                 path.unlink(missing_ok=True)
                 continue
             raise Abort(
-                "Another feature command is still running. Wait for it to finish, or delete\n"
+                "Another thread command is still running. Wait for it to finish, or delete\n"
                 f"{path} if you are sure it is stale."
             ) from None
         with os.fdopen(fd, "w") as handle:

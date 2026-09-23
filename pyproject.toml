@@ -1,7 +1,7 @@
 [project]
-name = "herdr-feature"
+name = "herdr-workthreads"
 version = "0.1.0"
-description = "One Herdr workspace per feature, holding Git worktrees from many repositories."
+description = "One Herdr workspace per thread, holding Git worktrees from many repositories."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
-herdr-feature = "herdr_feature.cli:entrypoint"
+herdr-workthreads = "herdr_workthreads.cli:entrypoint"
 
 [dependency-groups]
 dev = [
@@ -22,7 +22,7 @@ requires = ["uv_build>=0.9,<0.10"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "herdr_feature"
+module-name = "herdr_workthreads"
 module-root = "src"
 
 [tool.ruff]

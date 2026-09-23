@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .helpers import SRC  # noqa: F401
-from herdr_feature import manifest
-from herdr_feature.commands import common
+from herdr_workthreads import manifest
+from herdr_workthreads.commands import common
 
 
 def entry(folder: str, pr: dict | None) -> manifest.Worktree:
@@ -44,26 +44,26 @@ class WorktreeProgress(unittest.TestCase):
         self.assertEqual(common.worktree_progress(entry("a", pr("OPEN", draft=True))).detail, "#1 draft")
 
 
-class FeatureProgress(unittest.TestCase):
-    def feature(self, *prs):
-        feature = manifest.Feature(name="f", root=Path("/tmp/f"))
-        feature.worktrees = [entry(f"w{i}", p) for i, p in enumerate(prs)]
-        return feature
+class ThreadProgress(unittest.TestCase):
+    def thread(self, *prs):
+        thread = manifest.Thread(name="f", root=Path("/tmp/f"))
+        thread.worktrees = [entry(f"w{i}", p) for i, p in enumerate(prs)]
+        return thread
 
     def test_counts_and_done(self):
-        progress = common.feature_progress(self.feature(pr("MERGED"), pr("OPEN"), None))
+        progress = common.thread_progress(self.thread(pr("MERGED"), pr("OPEN"), None))
         self.assertEqual((progress.merged, progress.total, progress.unknown), (1, 3, 1))
         self.assertFalse(progress.done)
-        self.assertTrue(common.feature_progress(self.feature(pr("MERGED"), pr("MERGED"))).done)
-        self.assertFalse(common.feature_progress(self.feature()).done)
+        self.assertTrue(common.thread_progress(self.thread(pr("MERGED"), pr("MERGED"))).done)
+        self.assertFalse(common.thread_progress(self.thread()).done)
 
     def test_bar(self):
-        self.assertEqual(common.FeatureProgress(2, 4, 0).bar(width=8), "████░░░░ 2/4")
-        self.assertEqual(common.FeatureProgress(4, 4, 0).bar(width=8), "████████ 4/4")
-        self.assertEqual(common.FeatureProgress(0, 0, 0).bar(width=4), "░░░░ 0/0")
+        self.assertEqual(common.ThreadProgress(2, 4, 0).bar(width=8), "████░░░░ 2/4")
+        self.assertEqual(common.ThreadProgress(4, 4, 0).bar(width=8), "████████ 4/4")
+        self.assertEqual(common.ThreadProgress(0, 0, 0).bar(width=4), "░░░░ 0/0")
         # Unknown entries show as '?' at the tail, never overwriting merged cells.
-        self.assertEqual(common.FeatureProgress(1, 2, 1).bar(width=4), "██?? 1/2")
-        self.assertEqual(common.FeatureProgress(0, 1, 1).bar(width=4), "???? 0/1")
+        self.assertEqual(common.ThreadProgress(1, 2, 1).bar(width=4), "██?? 1/2")
+        self.assertEqual(common.ThreadProgress(0, 1, 1).bar(width=4), "???? 0/1")
 
     def test_age(self):
         now = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
