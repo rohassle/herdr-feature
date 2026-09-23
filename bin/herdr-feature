@@ -1,0 +1,12 @@
+#!/bin/sh
+# Non-interactive command line for agents and scripts. Same interpreter probe as the popup.
+# Resolves symlinks so this can be linked into ~/.local/bin.
+self=$0
+while [ -L "$self" ]; do
+    target=$(readlink "$self")
+    case $target in
+        /*) self=$target ;;
+        *) self=$(dirname -- "$self")/$target ;;
+    esac
+done
+exec sh "$(CDPATH= cd -- "$(dirname -- "$self")" && pwd)/bootstrap.sh" cli "$@"

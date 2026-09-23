@@ -1,0 +1,67 @@
+id = "feature"
+name = "Feature Workspaces"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "One Herdr workspace per feature, holding Git worktrees from any number of repositories."
+platforms = ["macos", "linux"]
+
+# Every action runs the same shim, which reads HERDR_PLUGIN_ACTION_ID and opens the
+# single popup entrypoint below with the action name forwarded in the environment.
+# Actions run without a TTY; the popup is where fzf and prompts live.
+
+[[actions]]
+id = "menu"
+title = "Feature: menu"
+description = "Pick one of the feature commands from a menu."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[actions]]
+id = "new"
+title = "Feature: new"
+description = "Create a feature: pick repositories, create a worktree in each, open a workspace."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[actions]]
+id = "add"
+title = "Feature: add worktrees"
+description = "Add worktrees from more repositories to the current feature."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[actions]]
+id = "open"
+title = "Feature: open"
+description = "Focus or reopen the workspace of an existing feature."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[actions]]
+id = "drop"
+title = "Feature: drop worktrees"
+description = "Remove individual worktrees from the current feature."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[actions]]
+id = "remove"
+title = "Feature: remove"
+description = "Remove a feature: all of its worktrees, its folder, and optionally its branches."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[actions]]
+id = "install-cli"
+title = "Feature: install command line"
+description = "Symlink the herdr-feature command into ~/.local/bin and optionally install the agent skill."
+contexts = ["workspace", "pane", "global"]
+command = ["sh", "bin/action.sh"]
+
+[[panes]]
+id = "ui"
+title = "Feature"
+placement = "popup"
+width = "85%"
+height = "70%"
+command = ["sh", "bin/bootstrap.sh"]

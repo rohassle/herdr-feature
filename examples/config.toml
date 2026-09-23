@@ -1,0 +1,16 @@
+# herdr-feature configuration
+# Location: herdr plugin config-dir feature
+
+# Folders scanned one level deep for git repositories. Linked worktrees, hidden folders,
+# and folders named "worktrees" or "features" are skipped.
+repo_directories = ["~/code", "~/oss"]
+
+# Extra repositories anywhere on disk.
+repos = ["~/infra/terraform-live"]
+
+# Where feature roots are created. Each feature is a folder holding one worktree per
+# repository; closing a workspace never deletes anything here.
+features_directory = "~/.herdr/features"
+
+# Prepended to every branch the plugin creates. May contain '/'.
+branch_prefix = "rh/"
